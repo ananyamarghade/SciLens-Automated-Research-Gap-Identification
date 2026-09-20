@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    background-color: #FBFBFA;
+    color: #0B132B;
+    transition: background-color 0.3s ease, color 0.3s ease;
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+    letter-spacing: -0.011em;
+  }
+
+  body, button, input, select, textarea {
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html.dark {
+    background-color: #070D1E;
+    color: #E2E8F0;
+  }
+  
+  ::selection {
+    background-color: #D4E7EA;
+    color: #124A52;
+  }
+
+  html.dark ::selection {
+    background-color: #134E48;
+    color: #5EEAD4;
+  }
+}
+
+/* Global Dark Mode Overrides for High-End Scientific Aesthetics */
+html.dark .bg-white {
+  background-color: #0C1528 !important;
+}
+
+html.dark .bg-scilens-ivory {
+  background-color: #091024 !important;
+}
+
+html.dark .bg-scilens-parchment {
+  background-color: #0E1A33 !important;
+}
+
+html.dark .bg-scilens-warmgray {
+  background-color: #14223E !important;
+}
+
+html.dark .border-scilens-border,
+html.dark .border-scilens-border\/60,
+html.dark .border-scilens-border\/50,
+html.dark .border-scilens-border\/80 {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .text-scilens-navy {
+  color: #F1F5F9 !important;
+}
+
+html.dark .text-scilens-muted {
+  color: #94A3B8 !important;
+}
+
+html.dark .text-scilens-lightmuted {
+  color: #64748B !important;
+}
+
+html.dark .text-scilens-teal {
+  color: #2DD4BF !important;
+}
+
+html.dark .bg-scilens-lightteal {
+  background-color: rgba(45, 212, 191, 0.12) !important;
+}
+
+html.dark .border-scilens-borderteal {
+  border-color: rgba(45, 212, 191, 0.28) !important;
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: #0A1224 !important;
+  color: #F1F5F9 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+@layer utilities {
+  .font-serif-italic {
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, sans-serif;
+    font-style: italic;
+  }
+  
+  .editorial-rule {
+    height: 1px;
+    background: linear-gradient(to right, #E3E0D8, #D6D2C4, #E3E0D8);
+  }
+
+  html.dark .editorial-rule {
+    background: linear-gradient(to right, rgba(255,255,255,0.05), rgba(255,255,255,0.15), rgba(255,255,255,0.05));
+  }
+  
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
