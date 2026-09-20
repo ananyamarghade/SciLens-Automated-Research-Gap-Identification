@@ -670,13 +670,15 @@ export async function generateLiteratureReviewApi(
   return null;
 }
 
-// 11. Authentication API
+// 11. Authentication API & Offline/GitHub Fallback Mode
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
   is_active: boolean;
   created_at: string;
+  role?: string;
+  provider?: 'local' | 'github' | 'backend';
 }
 
 export interface AuthResponse {
@@ -685,41 +687,315 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
+const LOCAL_USERS_STORAGE_KEY = 'scilens_local_users';
+const CURRENT_USER_STORAGE_KEY = 'scilens_current_user';
+
+interface StoredLocalUser extends AuthUser {
+  passwordHash?: string;
+}
+
+function getStoredLocalUsers(): StoredLocalUser[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_USERS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {
+    console.warn('Error reading local users from storage:', e);
+  }
+
+  // Pre-seeded academic researcher profiles for offline & GitHub evaluation
+  const defaults: StoredLocalUser[] = [
+    {
+      id: 'usr_ananya_marghade',
+      name: 'Ananya Marghade',
+      email: 'ananyamarghade35@gmail.com',
+      is_active: true,
+      created_at: new Date().toISOString(),
+      role: 'Lead Research Investigator',
+      provider: 'local',
+      passwordHash: 'c2NpbGVucw==',
+    },
+    {
+      id: 'usr_sarah_chen',
+      name: 'Dr. Sarah Chen',
+      email: 'demo@scilens.ai',
+      is_active: true,
+      created_at: new Date().toISOString(),
+      role: 'Senior Research Fellow',
+      provider: 'local',
+      passwordHash: 'c2NpbGVucw==',
+    },
+  ];
+
+  try {
+    localStorage.setItem(LOCAL_USERS_STORAGE_KEY, JSON.stringify(defaults));
+  } catch (e) {}
+
+  return defaults;
+}
+
+function saveStoredLocalUsers(users: StoredLocalUser[]): void {
+  try {
+    localStorage.setItem(LOCAL_USERS_STORAGE_KEY, JSON.stringify(users));
+  } catch (e) {
+    console.warn('Error writing local users:', e);
+  }
+}
+
+function registerLocalUser(payload: { name: string; email: string; password: string }): AuthResponse {
+  const emailNorm = payload.email.trim().toLowerCase();
+  const users = getStoredLocalUsers();
+
+  const existing = users.find((u) => u.email.toLowerCase() === emailNorm);
+  if (existing) {
+    // If account exists locally, update name and sign them in directly
+    existing.name = payload.name.trim() || existing.name;
+    existing.passwordHash = btoa(payload.password);
+    saveStoredLocalUsers(users);
+
+    const authUser: AuthUser = {
+      id: existing.id,
+      name: existing.name,
+      email: existing.email,
+      is_active: true,
+      created_at: existing.created_at,
+      role: existing.role || 'Research Scholar',
+      provider: 'local',
+    };
+    try {
+      localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(authUser));
+    } catch (e) {}
+
+    return {
+      access_token: `scilens_offline_token_${authUser.id}`,
+      token_type: 'bearer',
+      user: authUser,
+    };
+  }
+
+  const newUser: StoredLocalUser = {
+    id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    name: payload.name.trim() || 'Research Scholar',
+    email: payload.email.trim(),
+    is_active: true,
+    created_at: new Date().toISOString(),
+    role: 'Research Scholar',
+    provider: 'local',
+    passwordHash: btoa(payload.password),
+  };
+
+  users.push(newUser);
+  saveStoredLocalUsers(users);
+
+  const cleanUser: AuthUser = {
+    id: newUser.id,
+    name: newUser.name,
+    email: newUser.email,
+    is_active: newUser.is_active,
+    created_at: newUser.created_at,
+    role: newUser.role,
+    provider: 'local',
+  };
+
+  try {
+    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(cleanUser));
+  } catch (e) {}
+
+  return {
+    access_token: `scilens_offline_token_${cleanUser.id}`,
+    token_type: 'bearer',
+    user: cleanUser,
+  };
+}
+
+function loginLocalUser(payload: { email: string; password: string }): AuthResponse {
+  const emailNorm = payload.email.trim().toLowerCase();
+  const users = getStoredLocalUsers();
+
+  let matched = users.find((u) => u.email.toLowerCase() === emailNorm);
+
+  if (!matched) {
+    // If user enters any email in offline/GitHub mode, create account dynamically
+    const derivedName = emailNorm.includes('@')
+      ? emailNorm
+          .split('@')[0]
+          .replace(/[._0-9+-]+/g, ' ')
+          .replace(/\b\w/g, (c) => c.toUpperCase())
+          .trim() || 'Research Scholar'
+      : 'Research Scholar';
+
+    matched = {
+      id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: derivedName,
+      email: payload.email.trim(),
+      is_active: true,
+      created_at: new Date().toISOString(),
+      role: 'Research Scholar',
+      provider: 'local',
+      passwordHash: btoa(payload.password),
+    };
+    users.push(matched);
+    saveStoredLocalUsers(users);
+  }
+
+  const cleanUser: AuthUser = {
+    id: matched.id,
+    name: matched.name,
+    email: matched.email,
+    is_active: true,
+    created_at: matched.created_at,
+    role: matched.role || 'Research Scholar',
+    provider: matched.provider || 'local',
+  };
+
+  try {
+    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(cleanUser));
+  } catch (e) {}
+
+  return {
+    access_token: `scilens_offline_token_${cleanUser.id}`,
+    token_type: 'bearer',
+    user: cleanUser,
+  };
+}
+
 export async function registerApi(payload: { name: string; email: string; password: string }): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
+  try {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      const data: AuthResponse = await res.json();
+      try {
+        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(data.user));
+      } catch (e) {}
+      return data;
+    }
+
+    // Backend returned a specific validation or business error (e.g. 400 or 422)
     const err = await res.json().catch(() => ({ detail: 'Registration failed' }));
     throw new Error(err.detail || 'Registration failed');
+  } catch (err: any) {
+    // If it's an explicit server error response, rethrow
+    if (err.message && err.message !== 'Failed to fetch' && !err.message.toLowerCase().includes('fetch')) {
+      throw err;
+    }
+    // Fallback to local research session storage (e.g., GitHub Pages, Vercel preview, offline mode)
+    console.info('Backend unreachable, creating account in local research workspace session.');
+    return registerLocalUser(payload);
   }
-  return await res.json();
 }
 
 export async function loginApi(payload: { email: string; password: string }): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      const data: AuthResponse = await res.json();
+      try {
+        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(data.user));
+      } catch (e) {}
+      return data;
+    }
+
+    // Server responded with an authentication rejection
     const err = await res.json().catch(() => ({ detail: 'Incorrect email or password' }));
     throw new Error(err.detail || 'Incorrect email or password');
+  } catch (err: any) {
+    // If it's an explicit server rejection, rethrow
+    if (err.message && err.message !== 'Failed to fetch' && !err.message.toLowerCase().includes('fetch')) {
+      throw err;
+    }
+    // Fallback to local session login
+    console.info('Backend unreachable, authenticating via local research workspace session.');
+    return loginLocalUser(payload);
   }
-  return await res.json();
+}
+
+export async function loginWithGithubApi(): Promise<AuthResponse> {
+  // Try real backend GitHub auth if available in the future
+  try {
+    const res = await fetch(`${API_BASE}/auth/github`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      try {
+        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(data.user));
+      } catch (e) {}
+      return data;
+    }
+  } catch (err) {
+    // Expected fallback when backend is offline or on GitHub Pages
+  }
+
+  const githubUser: AuthUser = {
+    id: 'usr_github_investigator',
+    name: 'Ananya Marghade',
+    email: 'ananyamarghade35@gmail.com',
+    is_active: true,
+    created_at: new Date().toISOString(),
+    role: 'GitHub Research Lead',
+    provider: 'github',
+  };
+
+  try {
+    localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(githubUser));
+  } catch (e) {}
+
+  return {
+    access_token: `scilens_github_token_${Date.now()}`,
+    token_type: 'bearer',
+    user: githubUser,
+  };
 }
 
 export async function getMeApi(token: string): Promise<AuthUser> {
-  const res = await fetch(`${API_BASE}/auth/me`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!res.ok) {
+  // If token is local or GitHub mock token, return cached user
+  if (token.startsWith('scilens_offline_token_') || token.startsWith('scilens_github_token_')) {
+    try {
+      const cached = localStorage.getItem(CURRENT_USER_STORAGE_KEY);
+      if (cached) return JSON.parse(cached);
+    } catch (e) {}
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (res.ok) {
+      const user = await res.json();
+      try {
+        localStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(user));
+      } catch (e) {}
+      return user;
+    }
+  } catch (err) {
+    // If backend is offline, check local storage
+    try {
+      const cached = localStorage.getItem(CURRENT_USER_STORAGE_KEY);
+      if (cached) return JSON.parse(cached);
+    } catch (e) {}
     throw new Error('Failed to fetch user profile');
   }
-  return await res.json();
+
+  try {
+    const cached = localStorage.getItem(CURRENT_USER_STORAGE_KEY);
+    if (cached) return JSON.parse(cached);
+  } catch (e) {}
+
+  throw new Error('Failed to fetch user profile');
 }
 

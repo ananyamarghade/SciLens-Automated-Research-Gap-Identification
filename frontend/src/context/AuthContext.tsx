@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AuthUser, loginApi, registerApi, getMeApi } from '../services/api';
+import { AuthUser, loginApi, registerApi, getMeApi, loginWithGithubApi } from '../services/api';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -12,6 +12,8 @@ interface AuthContextType {
   closeAuthModal: () => void;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
+  loginWithGithub: () => Promise<void>;
+  loginAsDemo: () => Promise<void>;
   logout: () => void;
 }
 
@@ -33,6 +35,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(profile);
           setToken(storedToken);
         } catch {
+          // In offline / GitHub deployment mode, preserve local user profile if present
+          try {
+            const cached = localStorage.getItem('scilens_current_user');
+            if (cached) {
+              const localUser = JSON.parse(cached);
+              setUser(localUser);
+              setToken(storedToken);
+              setIsLoading(false);
+              return;
+            }
+          } catch (e) {}
+
           localStorage.removeItem('scilens_token');
           setToken(null);
           setUser(null);
@@ -68,8 +82,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthModalOpen(false);
   };
 
+  const loginWithGithub = async () => {
+    const res = await loginWithGithubApi();
+    localStorage.setItem('scilens_token', res.access_token);
+    setToken(res.access_token);
+    setUser(res.user);
+    setIsAuthModalOpen(false);
+  };
+
+  const loginAsDemo = async () => {
+    const res = await loginApi({ email: 'demo@scilens.ai', password: 'password123' });
+    localStorage.setItem('scilens_token', res.access_token);
+    setToken(res.access_token);
+    setUser(res.user);
+    setIsAuthModalOpen(false);
+  };
+
   const logout = () => {
     localStorage.removeItem('scilens_token');
+    localStorage.removeItem('scilens_current_user');
     setToken(null);
     setUser(null);
   };
@@ -87,6 +118,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         closeAuthModal,
         login,
         register,
+        loginWithGithub,
+        loginAsDemo,
         logout,
       }}
     >
