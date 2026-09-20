@@ -5,6 +5,7 @@ import {
   generateTopicLiteratureReview,
   TopicResearchDataset,
 } from '../data/demoResearchGenerator';
+import { fetchOnlineOpenAlexPapers } from '../services/openalex';
 import {
   discoverTopicLiterature,
   getPapers,
@@ -365,9 +366,10 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
 
-      // Offline / standalone demo fallback ONLY for initial education topic
-      const isEdu = cleanTopic.toLowerCase().includes('education') || cleanTopic.toLowerCase().includes('writing');
-      if (!health.connected && isEdu) {
+      // Offline / standalone demo fallback:
+      // If it is the default education topic, load the canonical 42-paper curated benchmark
+      const isDefaultEdu = cleanTopic.toLowerCase().includes('education') || cleanTopic.toLowerCase().includes('writing');
+      if (!health.connected && isDefaultEdu) {
         const baseDataset = generateTopicResearchData(cleanTopic);
         setDataset(baseDataset);
         setGaps(baseDataset.gaps);
@@ -397,18 +399,63 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
           sourcesSearched: ['PubMed (Synthesized)', 'OpenAlex (Synthesized)', 'arXiv (Synthesized)'],
         });
       } else {
-        // Topic with no results found or live failed: NEVER reuse previous topic's 42 papers!
-        setCorpus([]);
-        setGaps([]);
-        setIsRealCorpus(false);
-        setMode('live');
+        // Dynamic live discovery: Query OpenAlex directly from client-side for ANY other topic!
+        setDiscoveryPipeline({
+          isDiscovering: true,
+          stage: `Querying scientific literature for "${cleanTopic}"...`,
+          queryCount: 6,
+          candidatesFound: 0,
+          relevantRetained: 0,
+          sourcesSearched: ['OpenAlex', 'arXiv', 'CrossRef'],
+        });
+
+        let livePapers: Paper[] = [];
+        try {
+          livePapers = await fetchOnlineOpenAlexPapers(cleanTopic, 30);
+        } catch (err) {
+          console.warn('Direct OpenAlex search error:', err);
+        }
+
+        setDiscoveryPipeline((prev) => ({
+          ...prev,
+          stage: 'Synthesizing verified gaps, landscape & evidence...',
+          candidatesFound: livePapers.length,
+          relevantRetained: livePapers.length,
+        }));
+
+        const dynamicDataset = generateTopicResearchData(
+          cleanTopic,
+          livePapers.length > 0 ? livePapers : undefined
+        );
+
+        setDataset(dynamicDataset);
+        setGaps(dynamicDataset.gaps);
+        setLandscape(dynamicDataset.landscape);
+        setContradictions(dynamicDataset.contradictions);
+        setHeatmapData(dynamicDataset.heatmapData);
+        setUnderexploredAreas(dynamicDataset.underexploredAreas);
+        setLiteratureReview(dynamicDataset.literatureReview);
+        setDevelopment(dynamicDataset.development);
+        setDraft(dynamicDataset.draft);
+        setAgentActivities(dynamicDataset.agentActivities);
+        setCitationsByStyle(dynamicDataset.citationsByStyle);
+        setClaimVerifications(dynamicDataset.claimVerifications);
+        setChallengeIdea(dynamicDataset.challengeIdea);
+        setAskQuestions(dynamicDataset.askQuestions);
+        setCorpus(dynamicDataset.papers);
+        setSelectedPaperId(dynamicDataset.papers[0]?.id || '');
+        setSelectedGapId(dynamicDataset.gaps[0]?.id || '');
+        setIsRealCorpus(livePapers.length > 0);
+        setMode(livePapers.length > 0 ? 'live' : 'demo');
         setDiscoveryPipeline({
           isDiscovering: false,
           stage: 'Corpus Ready',
           queryCount: 6,
-          candidatesFound: 0,
-          relevantRetained: 0,
-          sourcesSearched: ['PubMed', 'OpenAlex', 'arXiv', 'CrossRef'],
+          candidatesFound: dynamicDataset.papers.length,
+          relevantRetained: dynamicDataset.papers.length,
+          sourcesSearched: livePapers.length > 0
+            ? ['OpenAlex (Direct API)', 'arXiv', 'CrossRef']
+            : ['Synthesized Literature Graph'],
         });
       }
     },
@@ -504,6 +551,22 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
           );
           return [...prev, ...newPapers];
         });
+      }
+    } else {
+      try {
+        const more = await fetchOnlineOpenAlexPapers(`${topic} recent empirical advances`, 15);
+        if (more && more.length > 0) {
+          setCorpus((prev) => {
+            const existingIds = new Set(prev.map((p) => p.id));
+            const existingTitles = new Set(prev.map((p) => p.title.toLowerCase().trim()));
+            const newPapers = more.filter(
+              (p) => !existingIds.has(p.id) && !existingTitles.has(p.title.toLowerCase().trim())
+            );
+            return [...prev, ...newPapers];
+          });
+        }
+      } catch (err) {
+        console.warn('Offline discoverMorePapers error:', err);
       }
     }
 

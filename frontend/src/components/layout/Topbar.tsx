@@ -35,6 +35,7 @@ export const Topbar: React.FC<TopbarProps> = ({
 }) => {
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
+  const [customTopicInput, setCustomTopicInput] = useState('');
   const [isBackendModalOpen, setIsBackendModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { theme, toggleTheme } = useTheme();
@@ -143,9 +144,47 @@ export const Topbar: React.FC<TopbarProps> = ({
         maxWidth="xl"
       >
         <div className="space-y-4">
-          <p className="text-xs text-scilens-muted dark:text-scilens-darkmuted font-sans leading-relaxed">
-            Select a benchmark domain from the scientific intelligence corpus or input a specialized line of inquiry.
-          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const clean = customTopicInput.trim();
+              if (clean) {
+                onSelectTopic(clean);
+                setCustomTopicInput('');
+                setIsTopicModalOpen(false);
+              }
+            }}
+            className="space-y-2"
+          >
+            <label className="text-xs font-mono font-medium uppercase tracking-wider text-scilens-slate dark:text-scilens-darkmuted flex items-center gap-1.5">
+              <Search className="w-3.5 h-3.5 text-scilens-teal dark:text-scilens-glowteal" />
+              <span>Search or Enter Any Custom Topic</span>
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={customTopicInput}
+                onChange={(e) => setCustomTopicInput(e.target.value)}
+                placeholder="e.g., Quantum error correction, CRISPR off-target, Climate tipping points..."
+                className="flex-1 px-3 py-2 text-xs font-sans rounded-lg border border-scilens-border dark:border-scilens-darkborder bg-white dark:bg-[#070D1E] text-scilens-navy dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-scilens-teal dark:focus:ring-scilens-glowteal"
+              />
+              <button
+                type="submit"
+                disabled={!customTopicInput.trim()}
+                className="px-4 py-2 text-xs font-sans font-medium rounded-lg bg-scilens-teal hover:bg-scilens-teal/90 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0 cursor-pointer"
+              >
+                Investigate
+              </button>
+            </div>
+          </form>
+
+          <div className="relative py-2 flex items-center">
+            <div className="flex-grow border-t border-scilens-border dark:border-scilens-darkborder" />
+            <span className="flex-shrink mx-3 text-[10px] font-mono uppercase tracking-wider text-scilens-muted dark:text-scilens-darkmuted">
+              Or Select Benchmark Domain
+            </span>
+            <div className="flex-grow border-t border-scilens-border dark:border-scilens-darkborder" />
+          </div>
 
           <div className="space-y-2">
             {sampleTopics.map((topic, idx) => (

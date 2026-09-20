@@ -7,6 +7,7 @@ import { demoDraft } from '../data/draft';
 import { demoCitationsByStyle, demoClaimVerifications } from '../data/citations';
 import { activeProject } from '../data/demoResearch';
 import { Paper, ResearchGap, AgentActivityItem, CitationStyle, ResearchLandscape } from '../types';
+import { fetchOnlineOpenAlexPapers } from './openalex';
 
 export const BACKEND_URL = (import.meta as any).env?.VITE_API_URL || 'http://127.0.0.1:8000';
 export const API_BASE = `${BACKEND_URL}/api`;
@@ -242,8 +243,19 @@ export async function searchOnlinePapers(
       }
     }
   } catch (err) {
-    console.warn('Backend searchOnlinePapers failed:', err);
+    console.warn('Backend searchOnlinePapers failed, falling back to direct OpenAlex query:', err);
   }
+
+  // Direct client-side OpenAlex search fallback
+  try {
+    const openAlexPapers = await fetchOnlineOpenAlexPapers(query, limit);
+    if (openAlexPapers.length > 0) {
+      return openAlexPapers;
+    }
+  } catch (e) {
+    console.warn('OpenAlex fallback failed:', e);
+  }
+
   return [];
 }
 
@@ -303,8 +315,19 @@ export async function discoverTopicLiterature(
       }
     }
   } catch (err) {
-    console.warn('Backend discoverTopicLiterature failed, fallback will be used:', err);
+    console.warn('Backend discoverTopicLiterature failed, fallback to direct OpenAlex will be used:', err);
   }
+
+  // Direct client-side OpenAlex search fallback
+  try {
+    const openAlexPapers = await fetchOnlineOpenAlexPapers(topic, limit);
+    if (openAlexPapers.length > 0) {
+      return openAlexPapers;
+    }
+  } catch (e) {
+    console.warn('Direct OpenAlex fallback failed:', e);
+  }
+
   return [];
 }
 
