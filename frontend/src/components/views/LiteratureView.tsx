@@ -43,6 +43,7 @@ export const LiteratureView: React.FC<LiteratureViewProps> = ({
   const {
     topic,
     corpus,
+    setCorpus,
     isRealCorpus,
     mode,
     discoveryPipeline,
@@ -128,9 +129,18 @@ export const LiteratureView: React.FC<LiteratureViewProps> = ({
       } else {
         setUploadError('Failed to process documents on backend.');
       }
-    } else if (identifierInput && health.connected && activeProjectId) {
-      await searchOnlinePapers(activeProjectId, identifierInput);
-      await refreshCorpus();
+    } else if (identifierInput.trim()) {
+      const found = await searchOnlinePapers(activeProjectId || 'client_proj', identifierInput.trim());
+      if (found && found.length > 0) {
+        setCorpus((prev) => {
+          const existingIds = new Set(prev.map((p) => p.id));
+          const existingTitles = new Set(prev.map((p) => p.title.toLowerCase().trim()));
+          const newPapers = found.filter(
+            (p) => !existingIds.has(p.id) && !existingTitles.has(p.title.toLowerCase().trim())
+          );
+          return [...prev, ...newPapers];
+        });
+      }
       setUploadSuccess(true);
       setTimeout(() => {
         setUploadSuccess(false);

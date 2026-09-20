@@ -55,6 +55,7 @@ export interface InvestigationContextType {
   mode: 'live' | 'demo';
   isRealCorpus: boolean;
   corpus: Paper[];
+  setCorpus: React.Dispatch<React.SetStateAction<Paper[]>>;
   landscape: ResearchLandscape;
   gaps: ResearchGap[];
   contradictions: TopicResearchDataset['contradictions'];
@@ -154,6 +155,7 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
       const key = `${cleanTopic}::${targetId || ''}`;
 
       setTopic(cleanTopic);
+      setActiveTopic(cleanTopic);
 
       // 1. Immediately hide/clear previous investigation's results so they are NEVER mixed
       setCorpus([]);
@@ -367,8 +369,9 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       // Offline / standalone demo fallback:
-      // If it is the default education topic, load the canonical 42-paper curated benchmark
-      const isDefaultEdu = cleanTopic.toLowerCase().includes('education') || cleanTopic.toLowerCase().includes('writing');
+      // ONLY the exact initial benchmark prompt loads the canonical 42-paper pre-compiled dataset.
+      // Any other topic (even containing 'education' or 'writing') will execute live OpenAlex discovery.
+      const isDefaultEdu = cleanTopic.toLowerCase() === 'how artificial intelligence changes modern education and writing';
       if (!health.connected && isDefaultEdu) {
         const baseDataset = generateTopicResearchData(cleanTopic);
         setDataset(baseDataset);
@@ -463,18 +466,19 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   useEffect(() => {
-    const targetTopic = activeTopic || topic;
+    const targetTopic = topic;
     const targetId = activeProjectId;
     const key = `${targetTopic}::${targetId || ''}`;
     if (lastLoadedRef.current === key) return;
     loadInvestigationForTopic(targetTopic, targetId);
-  }, [activeTopic, activeProjectId, topic, loadInvestigationForTopic]);
+  }, [topic, activeProjectId, loadInvestigationForTopic]);
 
   const changeTopic = async (newTopic: string) => {
     const clean = newTopic.trim();
     if (!clean) return;
 
     setTopic(clean);
+    setActiveTopic(clean);
 
     // 1. Immediately hide/clear previous investigation's results
     setCorpus([]);
@@ -676,6 +680,7 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
         mode,
         isRealCorpus,
         corpus,
+        setCorpus,
         landscape,
         gaps,
         contradictions,
