@@ -1,5 +1,11 @@
 # SciLens — Automated Research Gap Identification
 
+[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification)
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-Live_Demo-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://scilens-automated-research-gap-identification.vercel.app)
+
+- **🌐 Live Demo (Vercel):** [https://scilens-automated-research-gap-identification.vercel.app](https://scilens-automated-research-gap-identification.vercel.app)
+- **💻 GitHub Repository:** [https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification](https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification)
+
 SciLens is an autonomous AI-powered research assistant engine that identifies empirical research gaps, synthesizes literature landscapes, validates candidate gaps through an agentic evidence critic loop, formulates research frameworks, and exports research proposals.
 
 ---
@@ -187,10 +193,11 @@ backend/
 
 ### 5.1 Environment Setup
 
-Clone or enter the project directory:
+Clone the repository and enter the project directory:
 
 ```bash
-cd SciLens
+git clone https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification.git
+cd SciLens-Automated-Research-Gap-Identification
 ```
 
 Create a virtual environment:
@@ -353,3 +360,11 @@ All 21 test suites execute offline, validating:
 - Literature-grounded claim verification
 - DOCX and PDF document export
 - Full FastAPI endpoint coverage via TestClient
+
+---
+
+## 9. Links & Deployment
+
+- **Live Web Application (Vercel)**: [https://scilens-automated-research-gap-identification.vercel.app](https://scilens-automated-research-gap-identification.vercel.app)
+- **GitHub Repository**: [https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification](https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification)
+
