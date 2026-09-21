@@ -3,8 +3,8 @@
 [![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification)
 [![Vercel Deployment](https://img.shields.io/badge/Vercel-Live_Demo-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://scilens-automated-research-gap-identification.vercel.app)
 
-- **🌐 Live Demo (Vercel):** [https://scilens-automated-research-gap-identification.vercel.app](https://scilens-automated-research-gap-identification.vercel.app)
-- **💻 GitHub Repository:** [https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification](https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification)
+- **🌐 Live Demo (Vercel):** (https://sci-lens-automated-research-gap-ide-nu.vercel.app/)
+- **💻 GitHub Repository:** (https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification)
 
 SciLens is an autonomous AI-powered research assistant engine that identifies empirical research gaps, synthesizes literature landscapes, validates candidate gaps through an agentic evidence critic loop, formulates research frameworks, and exports research proposals.
 
