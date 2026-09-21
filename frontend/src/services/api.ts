@@ -8,8 +8,16 @@ import { demoCitationsByStyle, demoClaimVerifications } from '../data/citations'
 import { Paper, ResearchGap, GapStatus, AgentActivityItem, CitationStyle, ResearchLandscape } from '../types';
 import { fetchOnlineOpenAlexPapers } from './openalex';
 
-export const BACKEND_URL = (import.meta as any).env?.VITE_API_URL || 'http://127.0.0.1:8000';
-export const API_BASE = `${BACKEND_URL}/api`;
+const isBrowser = typeof window !== 'undefined';
+const isLocalHost = isBrowser && (
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1' ||
+  window.location.hostname === '::1'
+);
+const configuredUrl = (import.meta as any).env?.VITE_API_URL;
+// Guard: on Vercel/cloud deployments without a custom backend URL, avoid pinging 127.0.0.1
+export const BACKEND_URL = configuredUrl || (isLocalHost ? 'http://127.0.0.1:8000' : '');
+export const API_BASE = BACKEND_URL ? `${BACKEND_URL}/api` : '';
 
 export interface BackendHealth {
   connected: boolean;
@@ -42,6 +50,15 @@ export interface ResearchStatus {
 
 // 1. Health & Connection Check
 export async function checkBackendHealth(): Promise<BackendHealth> {
+  if (!BACKEND_URL) {
+    return {
+      connected: false,
+      system: 'Client-Side Mode',
+      status: 'offline',
+      docs: '',
+      gradio_ui: '',
+    };
+  }
   try {
     const res = await fetch(`${BACKEND_URL}/`, {
       method: 'GET',
@@ -75,6 +92,18 @@ export async function createProject(
   title?: string,
   description?: string
 ): Promise<ResearchProject> {
+  if (!API_BASE) {
+    return {
+      id: `proj_${Date.now()}`,
+      title: title || `Investigation: ${topic}`,
+      topic,
+      description: description || 'Automated Research Gap Identification Project',
+      status: 'planning',
+      progress: 0.05,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  }
   try {
     const res = await fetch(`${API_BASE}/research`, {
       method: 'POST',
@@ -105,6 +134,7 @@ export async function createProject(
 }
 
 export async function listProjects(): Promise<ResearchProject[]> {
+  if (!API_BASE) return [];
   try {
     const res = await fetch(`${API_BASE}/research`);
     if (res.ok) {

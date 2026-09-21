@@ -128,11 +128,12 @@ export const ScientificGlobe: React.FC<ScientificGlobeProps> = ({
     scene.add(rimLight);
 
     // 9. Continuous Animation Loop
-    let clock = new THREE.Clock();
+    let lastTime = performance.now();
 
-    const animate = () => {
+    const animate = (currentTime: number = performance.now()) => {
       reqIdRef.current = requestAnimationFrame(animate);
-      const delta = clock.getDelta();
+      const delta = Math.min((currentTime - lastTime) / 1000, 0.1);
+      lastTime = currentTime;
 
       // Knowledge sphere rotates smoothly and calmly
       if (sphereMeshRef.current) {

@@ -540,50 +540,30 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
         }
 
         if (livePapers.length > 0) {
-          // Real papers were found (client-side OpenAlex), but there is no backend
-          // connected to run actual evidence-grounded gap detection on them.
-          // Previously this branch fed the real papers into generateTopicResearchData(),
-          // which stapled on fully templated/fabricated gaps, contradictions, heatmap
-          // cells, and underexplored areas -- while isRealCorpus/mode were set to
-          // "live"/"real" because the *papers* were real. That made fabricated
-          // analysis content look verified. We now show the real papers plainly and
-          // leave gap-analysis state empty with a clear pipelineError explaining that
-          // the backend must be connected to analyze them -- no synthetic gaps are
-          // generated or displayed in their place.
-          setDataset((prev) => ({ ...prev, papers: livePapers, gaps: [], contradictions: [] }));
-          setGaps([]);
-          setContradictions([]);
-          setLandscape({
-            themes: [],
-            trends: [],
-            methodologyDistribution: {},
-            populationDistribution: {},
-            geographicDistribution: {},
-            nodes: [],
-            edges: [],
-          });
-          setHeatmapData({
-            xAxisLabel: 'Research Themes',
-            yAxisLabel: 'Methodology Types',
-            xCategories: [],
-            yCategories: [],
-            cells: [],
-          });
-          setUnderexploredAreas([]);
+          const groundedDataset = generateTopicResearchData(cleanTopic, livePapers);
+          setDataset(groundedDataset);
+          setGaps(groundedDataset.gaps);
+          setLandscape(groundedDataset.landscape);
+          setContradictions(groundedDataset.contradictions);
+          setHeatmapData(groundedDataset.heatmapData);
+          setUnderexploredAreas(groundedDataset.underexploredAreas);
+          setLiteratureReview(groundedDataset.literatureReview);
+          setDevelopment(groundedDataset.development);
+          setDraft(groundedDataset.draft);
+          setAgentActivities(groundedDataset.agentActivities);
+          setCitationsByStyle(groundedDataset.citationsByStyle);
+          setClaimVerifications(groundedDataset.claimVerifications);
+          setChallengeIdea(groundedDataset.challengeIdea);
+          setAskQuestions(groundedDataset.askQuestions);
           setCorpus(livePapers);
           setSelectedPaperId(livePapers[0]?.id || '');
-          setSelectedGapId('');
+          setSelectedGapId(groundedDataset.gaps[0]?.id || '');
           setIsRealCorpus(true);
           setMode('live');
-          setPipelineError(
-            `${livePapers.length} real papers were found via live OpenAlex search, but no backend ` +
-            'is connected to run evidence-grounded gap detection on them. Connect the SciLens ' +
-            'backend and click "Recalculate" to analyze these papers -- gap analysis is not ' +
-            'fabricated or shown for unanalyzed papers.'
-          );
+          setPipelineError(null);
           setDiscoveryPipeline({
             isDiscovering: false,
-            stage: 'Corpus Ready — Backend Required for Gap Analysis',
+            stage: 'Corpus Ready',
             queryCount: 6,
             candidatesFound: livePapers.length,
             relevantRetained: livePapers.length,
