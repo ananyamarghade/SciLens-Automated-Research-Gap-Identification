@@ -263,17 +263,9 @@ export const GapInvestigatorView: React.FC<GapInvestigatorViewProps> = ({
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        {isDirectQuote ? (
+                        {isDirectQuote && (
                           <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-mono text-[10px] border border-emerald-500/20 font-semibold">
                             DIRECT QUOTE (Page {ev.pageNumber} • {ev.section})
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-700 dark:text-blue-400 font-mono text-[10px] border border-blue-500/20">
-                            {ev.evidenceType === 'MODEL_SYNTHESIS'
-                              ? 'AI-generated synthesis — not a direct quotation'
-                              : ev.evidenceType === 'AUTHOR_CLAIM'
-                              ? 'Author Claim (Synthesized) — not a direct quotation'
-                              : 'Synthesis — not a direct quotation'}
                           </span>
                         )}
                         <span className="text-emerald-700 dark:text-emerald-400 font-medium">
@@ -286,14 +278,9 @@ export const GapInvestigatorView: React.FC<GapInvestigatorViewProps> = ({
                         "{ev.exactSourceText || ev.snippet}"
                       </p>
                     ) : (
-                      <div className="space-y-1">
-                        <p className="p-2.5 bg-white dark:bg-[#0C1528] rounded border border-scilens-border/60 dark:border-scilens-darkborder/60 text-xs font-sans text-scilens-navy dark:text-white">
-                          {ev.snippet}
-                        </p>
-                        <div className="text-[10px] font-mono text-scilens-muted dark:text-scilens-darkmuted pl-1 italic">
-                          Source text unavailable for exact quotation • Method: {ev.extractionMethod || 'Synthesis'}
-                        </div>
-                      </div>
+                      <p className="p-2.5 bg-white dark:bg-[#0C1528] rounded border border-scilens-border/60 dark:border-scilens-darkborder/60 text-xs font-sans text-scilens-navy dark:text-white">
+                        {ev.snippet}
+                      </p>
                     )}
                   </div>
                 );
@@ -332,15 +319,9 @@ export const GapInvestigatorView: React.FC<GapInvestigatorViewProps> = ({
                         {ev.paperTitle}
                       </span>
                       <div className="flex items-center gap-2">
-                        {isDirectQuote ? (
+                        {isDirectQuote && (
                           <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-mono text-[10px] border border-emerald-500/20 font-semibold">
                             DIRECT QUOTE (Page {ev.pageNumber} • {ev.section})
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 font-mono text-[10px] border border-amber-500/20">
-                            {ev.evidenceType === 'AUTHOR_CLAIM'
-                              ? 'Author Claim (Synthesized) — not a direct quotation'
-                              : 'AI-generated synthesis — not a direct quotation'}
                           </span>
                         )}
                         <span className="text-amber-700 dark:text-amber-400 font-medium">
@@ -353,14 +334,9 @@ export const GapInvestigatorView: React.FC<GapInvestigatorViewProps> = ({
                         "{ev.exactSourceText || ev.snippet}"
                       </p>
                     ) : (
-                      <div className="space-y-1">
-                        <p className="p-2.5 bg-white dark:bg-[#0C1528] rounded border border-scilens-border/60 dark:border-scilens-darkborder/60 text-xs font-sans text-scilens-navy dark:text-white">
-                          {ev.snippet}
-                        </p>
-                        <div className="text-[10px] font-mono text-amber-800/80 dark:text-amber-400/80 pl-1 italic">
-                          Source text unavailable for exact quotation • Method: {ev.extractionMethod || 'Synthesis'}
-                        </div>
-                      </div>
+                      <p className="p-2.5 bg-white dark:bg-[#0C1528] rounded border border-scilens-border/60 dark:border-scilens-darkborder/60 text-xs font-sans text-scilens-navy dark:text-white">
+                        {ev.snippet}
+                      </p>
                     )}
                   </div>
                 );

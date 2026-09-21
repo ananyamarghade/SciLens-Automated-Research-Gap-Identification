@@ -24,6 +24,8 @@ class Paper(Base):
     citation_count = Column(Integer, default=0, nullable=False)
     venue = Column(String(255), nullable=True)
     source_provider = Column(String(50), nullable=True)
+    metadata_source = Column(String(50), nullable=True)
+    full_text_source = Column(String(50), nullable=True)
     is_uploaded = Column(Integer, default=0, nullable=False)
     relevance_tier = Column(String(50), default="RELATED", nullable=False)
     # Analysis lifecycle: PENDING → COMPLETED | UNAVAILABLE
@@ -185,6 +187,8 @@ class PaperResponse(BaseModel):
     citation_count: int
     venue: Optional[str] = None
     source_provider: Optional[str] = None
+    metadata_source: Optional[str] = None
+    full_text_source: Optional[str] = None
     is_uploaded: int
     relevance_tier: str = "RELATED"
     # Analysis lifecycle status: PENDING | COMPLETED | UNAVAILABLE
@@ -222,6 +226,8 @@ class PaperSearchResultItem(BaseModel):
     citation_count: int = 0
     venue: Optional[str] = None
     source_provider: str
+    metadata_source: Optional[str] = None
+    full_text_source: Optional[str] = None
     relevance_score: int = 85
 
 

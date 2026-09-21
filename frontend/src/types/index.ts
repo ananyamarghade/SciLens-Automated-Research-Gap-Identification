@@ -159,6 +159,8 @@ export interface ResearchGap {
   noveltyAssessment: 'well_supported' | 'potential_gap' | 'insufficient_evidence';
   criticNotes?: string;
   iterationCount: number;
+  investigationId?: string;
+  source?: 'backend' | 'fallback' | 'demo';
   derivedFrom?: DerivedObservation[];
   crossPaperPattern?: string;
   missingEvidence?: string;

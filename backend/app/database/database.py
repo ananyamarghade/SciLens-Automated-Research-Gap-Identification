@@ -36,6 +36,8 @@ def init_db() -> None:
             "ALTER TABLE papers ADD COLUMN relevance_tier VARCHAR(50) DEFAULT 'RELATED'",
             "ALTER TABLE papers ADD COLUMN analysis_status VARCHAR(20) DEFAULT 'PENDING'",
             "ALTER TABLE papers ADD COLUMN unavailable_reason VARCHAR(50)",
+            "ALTER TABLE papers ADD COLUMN metadata_source VARCHAR(50)",
+            "ALTER TABLE papers ADD COLUMN full_text_source VARCHAR(50)",
             "ALTER TABLE gap_evidences ADD COLUMN doi VARCHAR(255)",
             "ALTER TABLE gap_evidences ADD COLUMN exact_source_text TEXT",
             "ALTER TABLE gap_evidences ADD COLUMN evidence_type VARCHAR(50) DEFAULT 'PARAPHRASE'",

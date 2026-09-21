@@ -247,13 +247,9 @@ export const ReferencesView: React.FC<ReferencesViewProps> = ({ onNavigate }) =>
                           <div className="flex flex-wrap items-center justify-between font-mono text-[10px] text-scilens-muted dark:text-scilens-darkmuted gap-1">
                             <span className="font-semibold text-scilens-navy dark:text-white">{ev.paperTitle}</span>
                             <div className="flex items-center gap-2">
-                              {isDirectQuote ? (
+                              {isDirectQuote && (
                                 <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-mono text-[9px] border border-emerald-500/20 font-semibold">
                                   VERBATIM SOURCE TEXT
-                                </span>
-                              ) : (
-                                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-700 dark:text-blue-400 font-mono text-[9px] border border-blue-500/20">
-                                  AI-generated synthesis — not a direct quotation
                                 </span>
                               )}
                               <span>Page {ev.page} • {ev.section}</span>

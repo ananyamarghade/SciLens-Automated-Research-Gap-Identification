@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useInvestigation } from '../../context/InvestigationContext';
+import { useBackend } from '../../context/BackendContext';
 import { PageHeader } from '../common/PageHeader';
 import { Metric } from '../common/Metric';
 import { WorkspaceView } from '../layout/Sidebar';
@@ -19,6 +20,7 @@ interface OverviewViewProps {
 }
 
 export const OverviewView: React.FC<OverviewViewProps> = ({ onNavigate }) => {
+  const { activeProjectId, health } = useBackend();
   const {
     topic,
     corpus,
@@ -28,9 +30,38 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ onNavigate }) => {
     agentActivities,
     setSelectedGapId,
     discoveryPipeline,
+    isRealCorpus,
   } = useInvestigation();
 
-  const validatedGapsCount = gaps.filter((g) => g.status === 'Validated').length;
+  // HARD RULE: Only display gaps that belong to the active investigation
+  const activeGaps = gaps.filter(
+    (gap) => !gap.investigationId || gap.investigationId === activeProjectId || gap.investigationId === topic
+  );
+
+  useEffect(() => {
+    if (activeGaps.length > 0) {
+      console.group(`[SciLens Gap Grounding Audit] Active Topic: "${topic}" | Active Investigation ID: "${activeProjectId}"`);
+      activeGaps.forEach((g) => {
+        const supportingCount = Math.max(g.supportingPaperIds?.length || 0, g.supportingPapers?.length || 0);
+        console.log({
+          'Gap Title': g.title,
+          'Investigation ID': g.investigationId || activeProjectId,
+          'Supporting Paper IDs': g.supportingPaperIds,
+          'Supporting Paper Titles': g.supportingPapers,
+          'Evidence Count': g.evidenceSnippets?.length || supportingCount,
+          'Validation Status': g.status,
+          'Confidence': `${Math.round(g.confidence * 100)}%`,
+          'Source': g.source || (isRealCorpus ? (health.connected ? 'backend' : 'openalex_retrieval') : 'demo')
+        });
+      });
+      console.groupEnd();
+    }
+  }, [activeGaps, topic, activeProjectId, isRealCorpus, health.connected]);
+
+  const validatedGapsCount = activeGaps.filter(
+    (g) => (g.status === 'Validated' || g.status === 'Validated Gap' || (g.status as string) === 'SUPPORTED') &&
+           Math.max(g.supportingPaperIds?.length || 0, g.supportingPapers?.length || 0) > 0
+  ).length;
   const latestActivity = agentActivities[agentActivities.length - 1] || {
     agentName: 'Literature Discovery Agent',
     timestamp: 'Just now',
@@ -224,46 +255,64 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ onNavigate }) => {
                 onClick={() => onNavigate('gaps')}
                 className="text-xs font-mono text-scilens-teal dark:text-scilens-glowteal hover:underline flex items-center gap-1 font-semibold"
               >
-                <span>View all ({gaps.length})</span>
+                <span>View all ({activeGaps.length})</span>
                 <ArrowRight className="w-3 h-3" />
               </button>
             </div>
 
             <div className="space-y-3">
-              {gaps.slice(0, 3).map((gap) => (
-                <div
-                  key={gap.id}
-                  onClick={() => {
-                    setSelectedGapId(gap.id);
-                    onNavigate('gap_investigator');
-                  }}
-                  className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:border-scilens-teal hover:shadow-xs transition-all cursor-pointer bg-slate-50/50 dark:bg-slate-900/30 space-y-2 group"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/40 text-scilens-teal dark:text-scilens-glowteal font-semibold uppercase border border-teal-500/20">
-                      {gap.gapType} GAP
-                    </span>
-                    <span className="text-[10px] font-mono text-scilens-teal dark:text-scilens-glowteal font-semibold flex items-center gap-1">
-                      <span>VERIFIED ({Math.round(gap.confidence * 100)}%)</span>
-                    </span>
-                  </div>
-
-                  <h4 className="font-serif text-base font-semibold text-scilens-navy dark:text-white group-hover:text-scilens-teal transition-colors">
-                    {gap.title}
-                  </h4>
-
-                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                    {gap.description}
-                  </p>
-
-                  <div className="pt-2 flex items-center justify-between text-[11px] font-mono text-slate-400 dark:text-slate-500 border-t border-slate-200/60 dark:border-slate-800/60">
-                    <span>Supporting: {gap.supportingPapers.length} papers</span>
-                    <span className="group-hover:translate-x-0.5 transition-transform text-scilens-teal dark:text-scilens-glowteal flex items-center gap-1 font-sans font-medium">
-                      Investigate timeline →
-                    </span>
-                  </div>
+              {activeGaps.length === 0 ? (
+                <div className="p-6 text-center text-xs text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-slate-900/20 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                  Insufficient evidence to identify a validated gap for this investigation.
                 </div>
-              ))}
+              ) : (
+                activeGaps.slice(0, 3).map((gap) => {
+                  const paperCount = Math.max(gap.supportingPaperIds?.length || 0, gap.supportingPapers?.length || 0);
+                  // HARD RULE: If supporting paper count is 0, status can NEVER be VERIFIED
+                  const isVerified = (gap.status === 'Validated' || gap.status === 'Validated Gap' || (gap.status as string) === 'SUPPORTED') && paperCount > 0;
+                  const displayStatus = paperCount === 0 ? 'INSUFFICIENT EVIDENCE' : isVerified ? 'VERIFIED' : gap.status.toUpperCase();
+                  const statusColorClass = paperCount === 0
+                    ? 'text-zinc-500 dark:text-zinc-400'
+                    : isVerified
+                    ? 'text-scilens-teal dark:text-scilens-glowteal'
+                    : 'text-amber-600 dark:text-amber-400';
+
+                  return (
+                    <div
+                      key={gap.id}
+                      onClick={() => {
+                        setSelectedGapId(gap.id);
+                        onNavigate('gap_investigator');
+                      }}
+                      className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:border-scilens-teal hover:shadow-xs transition-all cursor-pointer bg-slate-50/50 dark:bg-slate-900/30 space-y-2 group"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/40 text-scilens-teal dark:text-scilens-glowteal font-semibold uppercase border border-teal-500/20">
+                          {gap.gapType} GAP
+                        </span>
+                        <span className={`text-[10px] font-mono font-semibold flex items-center gap-1 ${statusColorClass}`}>
+                          <span>{displayStatus} ({Math.round(gap.confidence * 100)}%)</span>
+                        </span>
+                      </div>
+
+                      <h4 className="font-serif text-base font-semibold text-scilens-navy dark:text-white group-hover:text-scilens-teal transition-colors">
+                        {gap.title}
+                      </h4>
+
+                      <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                        {gap.description}
+                      </p>
+
+                      <div className="pt-2 flex items-center justify-between text-[11px] font-mono text-slate-400 dark:text-slate-500 border-t border-slate-200/60 dark:border-slate-800/60">
+                        <span>Supporting: {paperCount} {paperCount === 1 ? 'paper' : 'papers'}</span>
+                        <span className="group-hover:translate-x-0.5 transition-transform text-scilens-teal dark:text-scilens-glowteal flex items-center gap-1 font-sans font-medium">
+                          Investigate timeline →
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 

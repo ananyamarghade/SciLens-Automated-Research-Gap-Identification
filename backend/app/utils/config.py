@@ -34,6 +34,8 @@ class Settings(BaseSettings):
 
     OPENALEX_API_KEY: Optional[str] = None
     TAVILY_API_KEY: Optional[str] = None
+    CORE_API_KEY: Optional[str] = None
+    ARXIV_RATE_LIMIT_DELAY: float = 3.0
 
     MAX_INVESTIGATION_ITERATIONS: int = 3
     CORS_ORIGINS: str = "*"

@@ -43,6 +43,8 @@ async def create_research_project(
                 pdf_url=item.pdf_url,
                 venue=item.venue,
                 source_provider=item.source_provider,
+                metadata_source=item.metadata_source or item.source_provider,
+                full_text_source=item.full_text_source,
             )
     except Exception:
         pass

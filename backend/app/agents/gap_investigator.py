@@ -70,6 +70,7 @@ class GapInvestigatorAgent:
 
         for paper_item in discovered:
             pdf_result = await self.full_text_service.acquire_paper_pdf(paper_item.model_dump())
+            fts = pdf_result.get("full_text_source") if pdf_result else ("abstract_only" if paper_item.abstract else "unavailable")
             paper_rec = self.paper_repo.create_paper(
                 research_id=research_id,
                 title=paper_item.title,
@@ -81,6 +82,8 @@ class GapInvestigatorAgent:
                 pdf_url=paper_item.pdf_url,
                 venue=paper_item.venue,
                 source_provider=paper_item.source_provider,
+                metadata_source=paper_item.metadata_source or paper_item.source_provider,
+                full_text_source=fts,
                 is_uploaded=1 if pdf_result else 0,
             )
 

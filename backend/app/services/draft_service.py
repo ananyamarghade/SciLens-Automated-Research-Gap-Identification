@@ -1,7 +1,10 @@
+import logging
 import re
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from backend.app.database.repositories import DraftRepository, GapRepository, PaperRepository, ResearchRepository
 from backend.app.models.draft import (
@@ -478,7 +481,15 @@ class DraftService:
                     f"Populate table rows strictly from the indexed papers and gaps. Use \"Not reported\" for any missing attributes."
                 )
 
-                llm_res: LLMReviewPayload = self.llm.generate_structured(prompt, LLMReviewPayload)
+                # This prompt asks for 17 dense sections (150-250 words each) plus 5
+                # tables in a single JSON payload -- realistically 4,000-6,000+ words
+                # of JSON. Providers with low default output caps (e.g. Groq) were
+                # silently truncating this mid-response, which produced a parse
+                # failure and a fall-through to the short generic template below.
+                # Ask explicitly for a much larger budget.
+                llm_res: LLMReviewPayload = self.llm.generate_structured(
+                    prompt, LLMReviewPayload, max_tokens=12000
+                )
                 if llm_res and llm_res.sections and len(llm_res.sections) >= 10:
                     for s in llm_res.sections:
                         supp_ids = []
@@ -503,11 +514,29 @@ class DraftService:
                             rows=t.rows,
                             description=t.description or f"Comparative matrix for {topic}."
                         ))
-            except Exception:
+            except Exception as exc:
+                logger.error(
+                    "LLM literature review generation failed for research_id=%s "
+                    "(topic='%s', %d source papers): %s",
+                    research_id, topic, len(source_papers_meta), exc, exc_info=True,
+                )
                 generated_sections = []
                 generated_tables = []
+        else:
+            logger.warning(
+                "No LLM provider configured for literature review generation "
+                "(research_id=%s) -- using static template sections.",
+                research_id,
+            )
 
-        if len(generated_sections) < 17:
+        # IMPORTANT: only fall back to the short static template when the LLM
+        # produced nothing usable. Previously this triggered on "< 17 sections",
+        # which meant a *partial* LLM success (e.g. 12 good, detailed sections)
+        # got all 17 generic template sections appended on top of it instead of
+        # being trusted -- doubling the section count with duplicate titles and
+        # diluting real, grounded content with generic filler. A partial LLM
+        # result is still far better than the template, so we keep it as-is.
+        if not generated_sections:
             p1 = source_papers_meta[0] if source_papers_meta else {}
             p2 = source_papers_meta[1] if len(source_papers_meta) > 1 else p1
             p3 = source_papers_meta[2] if len(source_papers_meta) > 2 else p2
@@ -546,7 +575,9 @@ class DraftService:
                     citations=[cite(p, i) for i, p in enumerate(source_papers_meta[:3])]
                 ))
 
-        if len(generated_tables) < 5:
+        # Same fix as above: only fabricate the static tables when the LLM
+        # produced none, rather than always padding up to 5.
+        if not generated_tables:
             p0 = source_papers_meta[0] if source_papers_meta else {}
             p1_meta = source_papers_meta[1] if len(source_papers_meta) > 1 else p0
 

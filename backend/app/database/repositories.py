@@ -136,7 +136,23 @@ class PaperRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_paper(self, research_id: str, title: str, authors: List[str], year: Optional[int] = None, abstract: Optional[str] = None, doi: Optional[str] = None, source_url: Optional[str] = None, pdf_url: Optional[str] = None, venue: Optional[str] = None, source_provider: Optional[str] = None, is_uploaded: int = 0, document_id: Optional[str] = None) -> Paper:
+    def create_paper(
+        self,
+        research_id: str,
+        title: str,
+        authors: List[str],
+        year: Optional[int] = None,
+        abstract: Optional[str] = None,
+        doi: Optional[str] = None,
+        source_url: Optional[str] = None,
+        pdf_url: Optional[str] = None,
+        venue: Optional[str] = None,
+        source_provider: Optional[str] = None,
+        metadata_source: Optional[str] = None,
+        full_text_source: Optional[str] = None,
+        is_uploaded: int = 0,
+        document_id: Optional[str] = None,
+    ) -> Paper:
         paper = Paper(
             research_id=research_id,
             document_id=document_id,
@@ -149,11 +165,29 @@ class PaperRepository:
             pdf_url=pdf_url,
             venue=venue,
             source_provider=source_provider,
+            metadata_source=metadata_source or source_provider,
+            full_text_source=full_text_source,
             is_uploaded=is_uploaded
         )
         self.db.add(paper)
         self.db.commit()
         self.db.refresh(paper)
+        return paper
+
+    def update_paper_full_text_source(self, paper_id: str, full_text_source: str) -> Optional[Paper]:
+        paper = self.get_paper(paper_id)
+        if paper:
+            paper.full_text_source = full_text_source
+            self.db.commit()
+            self.db.refresh(paper)
+        return paper
+
+    def update_paper_metadata_source(self, paper_id: str, metadata_source: str) -> Optional[Paper]:
+        paper = self.get_paper(paper_id)
+        if paper:
+            paper.metadata_source = metadata_source
+            self.db.commit()
+            self.db.refresh(paper)
         return paper
 
     def get_paper(self, paper_id: str) -> Optional[Paper]:

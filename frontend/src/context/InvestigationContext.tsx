@@ -13,6 +13,7 @@ import {
   getLandscape,
   searchOnlinePapers,
   createProject,
+  listProjects,
   startResearchWorkflow,
   generateLiteratureReviewApi,
   investigateGap,
@@ -151,7 +152,40 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
   const loadInvestigationForTopic = useCallback(
     async (targetTopic: string, projId?: string) => {
       const cleanTopic = targetTopic.trim() || 'How artificial intelligence changes modern education and writing';
-      const targetId = projId || activeProjectId;
+      const isDefaultEdu = cleanTopic.toLowerCase() === 'how artificial intelligence changes modern education and writing';
+
+      let targetId = projId;
+      if (!targetId && health.connected) {
+        try {
+          const projects = await listProjects();
+          const cleanNorm = cleanTopic.toLowerCase().replace(/["']/g, '').trim();
+          const match = projects.find((p: any) => {
+            const pNorm = (p.topic || p.title || '').toLowerCase().replace(/["']/g, '').trim();
+            return pNorm === cleanNorm || pNorm.includes(cleanNorm) || cleanNorm.includes(pNorm);
+          });
+          if (match) {
+            targetId = match.id;
+            setActiveProjectId(match.id);
+          } else if (isDefaultEdu) {
+            targetId = 'canonical_ai_education_writing';
+          } else {
+            // Create backend project for this topic so it is properly isolated
+            const created = await createProject(
+              cleanTopic,
+              `Investigation: ${cleanTopic}`,
+              `Automated research gap identification for topic: ${cleanTopic}`
+            );
+            targetId = created.id;
+            setActiveProjectId(created.id);
+            startResearchWorkflow(created.id).catch(() => {});
+          }
+        } catch (e) {
+          console.warn('Could not match or create project for topic:', e);
+        }
+      } else if (!targetId && isDefaultEdu) {
+        targetId = 'canonical_ai_education_writing';
+      }
+
       const key = `${cleanTopic}::${targetId || ''}`;
 
       setTopic(cleanTopic);
@@ -226,16 +260,75 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
             setIsRealCorpus(true);
             setMode('live');
             if (existingGaps && existingGaps.length > 0) {
-              setGaps(existingGaps);
-              setSelectedGapIdsForReview(existingGaps.slice(0, 2).map((g) => g.id));
-              setSelectedGapId(existingGaps[0].id);
+              const groundedGaps = existingGaps.map(g => ({
+                ...g,
+                investigationId: g.investigationId || targetId,
+                source: 'backend' as const,
+              })).filter(g => {
+                // Hard rule: can NEVER have 0 supporting papers and status Validated/Verified
+                const count = Math.max(g.supportingPaperIds?.length || 0, g.supportingPapers?.length || 0);
+                if (count === 0 && (g.status === 'Validated' || g.status === 'Validated Gap' || (g.status as string) === 'SUPPORTED')) {
+                  g.status = 'Insufficient Evidence';
+                }
+                return true;
+              });
+
+              console.group(`[SciLens Gap Grounding Audit] Topic: "${cleanTopic}" | Investigation ID: "${targetId}"`);
+              groundedGaps.forEach((g) => {
+                const count = Math.max(g.supportingPaperIds?.length || 0, g.supportingPapers?.length || 0);
+                console.log({
+                  'Gap Title': g.title,
+                  'Investigation ID': g.investigationId || targetId,
+                  'Supporting Paper IDs': g.supportingPaperIds,
+                  'Supporting Paper Titles': g.supportingPapers,
+                  'Evidence Count': g.evidenceSnippets?.length || count,
+                  'Validation Status': g.status,
+                  'Confidence': `${Math.round(g.confidence * 100)}%`,
+                  'Source': 'backend'
+                });
+              });
+              console.groupEnd();
+
+              setGaps(groundedGaps);
+              setSelectedGapIdsForReview(groundedGaps.slice(0, 2).map((g) => g.id));
+              setSelectedGapId(groundedGaps[0].id);
             } else {
               detectGapsApi(targetId).then((detected) => {
                 if (detected && detected.length > 0) {
-                  setGaps(detected);
-                  setSelectedGapIdsForReview(detected.slice(0, 2).map((g) => g.id));
-                  setSelectedGapId(detected[0].id);
+                  const groundedDetected = detected.map(g => ({
+                    ...g,
+                    investigationId: g.investigationId || targetId,
+                    source: 'backend' as const,
+                  })).filter(g => {
+                    const count = Math.max(g.supportingPaperIds?.length || 0, g.supportingPapers?.length || 0);
+                    if (count === 0 && (g.status === 'Validated' || g.status === 'Validated Gap' || (g.status as string) === 'SUPPORTED')) {
+                      g.status = 'Insufficient Evidence';
+                    }
+                    return true;
+                  });
+
+                  console.group(`[SciLens Gap Grounding Audit - Detected] Topic: "${cleanTopic}" | Investigation ID: "${targetId}"`);
+                  groundedDetected.forEach((g) => {
+                    const count = Math.max(g.supportingPaperIds?.length || 0, g.supportingPapers?.length || 0);
+                    console.log({
+                      'Gap Title': g.title,
+                      'Investigation ID': g.investigationId || targetId,
+                      'Supporting Paper IDs': g.supportingPaperIds,
+                      'Supporting Paper Titles': g.supportingPapers,
+                      'Evidence Count': g.evidenceSnippets?.length || count,
+                      'Validation Status': g.status,
+                      'Confidence': `${Math.round(g.confidence * 100)}%`,
+                      'Source': 'backend'
+                    });
+                  });
+                  console.groupEnd();
+
+                  setGaps(groundedDetected);
+                  setSelectedGapIdsForReview(groundedDetected.slice(0, 2).map((g) => g.id));
+                  setSelectedGapId(groundedDetected[0].id);
                   setPipelineError(null);
+                } else {
+                  setGaps([]);
                 }
               }).catch((err: any) => {
                 console.warn('Initial gap detection failed:', err);
@@ -325,9 +418,37 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
             }));
 
             if (detectedGaps && detectedGaps.length > 0) {
-              setGaps(detectedGaps);
-              setSelectedGapIdsForReview(detectedGaps.slice(0, 2).map((g) => g.id));
-              setSelectedGapId(detectedGaps[0].id);
+              const groundedDetected = detectedGaps.map(g => ({
+                ...g,
+                investigationId: g.investigationId || targetId,
+                source: 'backend' as const,
+              })).filter(g => {
+                const count = Math.max(g.supportingPaperIds?.length || 0, g.supportingPapers?.length || 0);
+                if (count === 0 && (g.status === 'Validated' || g.status === 'Validated Gap' || (g.status as string) === 'SUPPORTED')) {
+                  g.status = 'Insufficient Evidence';
+                }
+                return true;
+              });
+
+              console.group(`[SciLens Gap Grounding Audit - Discovered] Topic: "${cleanTopic}" | Investigation ID: "${targetId}"`);
+              groundedDetected.forEach((g) => {
+                const count = Math.max(g.supportingPaperIds?.length || 0, g.supportingPapers?.length || 0);
+                console.log({
+                  'Gap Title': g.title,
+                  'Investigation ID': g.investigationId || targetId,
+                  'Supporting Paper IDs': g.supportingPaperIds,
+                  'Supporting Paper Titles': g.supportingPapers,
+                  'Evidence Count': g.evidenceSnippets?.length || count,
+                  'Validation Status': g.status,
+                  'Confidence': `${Math.round(g.confidence * 100)}%`,
+                  'Source': 'backend'
+                });
+              });
+              console.groupEnd();
+
+              setGaps(groundedDetected);
+              setSelectedGapIdsForReview(groundedDetected.slice(0, 2).map((g) => g.id));
+              setSelectedGapId(groundedDetected[0].id);
             } else {
               setGaps([]);
             }
@@ -371,7 +492,6 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
       // Offline / standalone demo fallback:
       // ONLY the exact initial benchmark prompt loads the canonical 42-paper pre-compiled dataset.
       // Any other topic (even containing 'education' or 'writing') will execute live OpenAlex discovery.
-      const isDefaultEdu = cleanTopic.toLowerCase() === 'how artificial intelligence changes modern education and writing';
       if (!health.connected && isDefaultEdu) {
         const baseDataset = generateTopicResearchData(cleanTopic);
         setDataset(baseDataset);
@@ -419,51 +539,102 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
           console.warn('Direct OpenAlex search error:', err);
         }
 
-        setDiscoveryPipeline((prev) => ({
-          ...prev,
-          stage: 'Synthesizing verified gaps, landscape & evidence...',
-          candidatesFound: livePapers.length,
-          relevantRetained: livePapers.length,
-        }));
-
-        const dynamicDataset = generateTopicResearchData(
-          cleanTopic,
-          livePapers.length > 0 ? livePapers : undefined
-        );
-
-        setDataset(dynamicDataset);
-        setGaps(dynamicDataset.gaps);
-        setLandscape(dynamicDataset.landscape);
-        setContradictions(dynamicDataset.contradictions);
-        setHeatmapData(dynamicDataset.heatmapData);
-        setUnderexploredAreas(dynamicDataset.underexploredAreas);
-        setLiteratureReview(dynamicDataset.literatureReview);
-        setDevelopment(dynamicDataset.development);
-        setDraft(dynamicDataset.draft);
-        setAgentActivities(dynamicDataset.agentActivities);
-        setCitationsByStyle(dynamicDataset.citationsByStyle);
-        setClaimVerifications(dynamicDataset.claimVerifications);
-        setChallengeIdea(dynamicDataset.challengeIdea);
-        setAskQuestions(dynamicDataset.askQuestions);
-        setCorpus(dynamicDataset.papers);
-        setSelectedPaperId(dynamicDataset.papers[0]?.id || '');
-        setSelectedGapId(dynamicDataset.gaps[0]?.id || '');
-        setIsRealCorpus(livePapers.length > 0);
-        setMode(livePapers.length > 0 ? 'live' : 'demo');
-        setDiscoveryPipeline({
-          isDiscovering: false,
-          stage: 'Corpus Ready',
-          queryCount: 6,
-          candidatesFound: dynamicDataset.papers.length,
-          relevantRetained: dynamicDataset.papers.length,
-          sourcesSearched: livePapers.length > 0
-            ? ['OpenAlex (Direct API)', 'arXiv', 'CrossRef']
-            : ['Synthesized Literature Graph'],
-        });
+        if (livePapers.length > 0) {
+          // Real papers were found (client-side OpenAlex), but there is no backend
+          // connected to run actual evidence-grounded gap detection on them.
+          // Previously this branch fed the real papers into generateTopicResearchData(),
+          // which stapled on fully templated/fabricated gaps, contradictions, heatmap
+          // cells, and underexplored areas -- while isRealCorpus/mode were set to
+          // "live"/"real" because the *papers* were real. That made fabricated
+          // analysis content look verified. We now show the real papers plainly and
+          // leave gap-analysis state empty with a clear pipelineError explaining that
+          // the backend must be connected to analyze them -- no synthetic gaps are
+          // generated or displayed in their place.
+          setDataset((prev) => ({ ...prev, papers: livePapers, gaps: [], contradictions: [] }));
+          setGaps([]);
+          setContradictions([]);
+          setLandscape({
+            themes: [],
+            trends: [],
+            methodologyDistribution: {},
+            populationDistribution: {},
+            geographicDistribution: {},
+            nodes: [],
+            edges: [],
+          });
+          setHeatmapData({
+            xAxisLabel: 'Research Themes',
+            yAxisLabel: 'Methodology Types',
+            xCategories: [],
+            yCategories: [],
+            cells: [],
+          });
+          setUnderexploredAreas([]);
+          setCorpus(livePapers);
+          setSelectedPaperId(livePapers[0]?.id || '');
+          setSelectedGapId('');
+          setIsRealCorpus(true);
+          setMode('live');
+          setPipelineError(
+            `${livePapers.length} real papers were found via live OpenAlex search, but no backend ` +
+            'is connected to run evidence-grounded gap detection on them. Connect the SciLens ' +
+            'backend and click "Recalculate" to analyze these papers -- gap analysis is not ' +
+            'fabricated or shown for unanalyzed papers.'
+          );
+          setDiscoveryPipeline({
+            isDiscovering: false,
+            stage: 'Corpus Ready — Backend Required for Gap Analysis',
+            queryCount: 6,
+            candidatesFound: livePapers.length,
+            relevantRetained: livePapers.length,
+            sourcesSearched: ['OpenAlex (Direct API)', 'arXiv', 'CrossRef'],
+          });
+        } else {
+          // No real papers could be found (offline and no backend) -- fall back to
+          // the fully synthetic demo dataset. This is fine because it's honestly
+          // labeled as demo/not-real throughout (isRealCorpus=false, mode='demo'),
+          // unlike the case above where real papers were mixed with fabricated
+          // analysis and labeled as real.
+          const syntheticDataset = generateTopicResearchData(cleanTopic);
+          setDataset(syntheticDataset);
+          setGaps(syntheticDataset.gaps);
+          setLandscape(syntheticDataset.landscape);
+          setContradictions(syntheticDataset.contradictions);
+          setHeatmapData(syntheticDataset.heatmapData);
+          setUnderexploredAreas(syntheticDataset.underexploredAreas);
+          setLiteratureReview(syntheticDataset.literatureReview);
+          setDevelopment(syntheticDataset.development);
+          setDraft(syntheticDataset.draft);
+          setAgentActivities(syntheticDataset.agentActivities);
+          setCitationsByStyle(syntheticDataset.citationsByStyle);
+          setClaimVerifications(syntheticDataset.claimVerifications);
+          setChallengeIdea(syntheticDataset.challengeIdea);
+          setAskQuestions(syntheticDataset.askQuestions);
+          setCorpus(syntheticDataset.papers);
+          setSelectedPaperId(syntheticDataset.papers[0]?.id || '');
+          setSelectedGapId(syntheticDataset.gaps[0]?.id || '');
+          setIsRealCorpus(false);
+          setMode('demo');
+          setPipelineError(null);
+          setDiscoveryPipeline({
+            isDiscovering: false,
+            stage: 'Corpus Ready',
+            queryCount: 6,
+            candidatesFound: syntheticDataset.papers.length,
+            relevantRetained: syntheticDataset.papers.length,
+            sourcesSearched: ['Synthesized Literature Graph'],
+          });
+        }
       }
     },
     [health.connected, activeProjectId, reviewCitationStyle]
   );
+
+  useEffect(() => {
+    if (activeTopic && activeTopic !== topic) {
+      setTopic(activeTopic);
+    }
+  }, [activeTopic]);
 
   useEffect(() => {
     const targetTopic = topic;
@@ -518,16 +689,27 @@ export const InvestigationProvider: React.FC<{ children: React.ReactNode }> = ({
     // 3. Trigger backend project creation and load investigation
     if (health.connected) {
       try {
-        const created = await createProject(
-          clean,
-          `Investigation: ${clean}`,
-          `Automated research gap identification for topic: ${clean}`
-        );
-        setActiveProjectId(created.id);
+        const projects = await listProjects();
+        const cleanNorm = clean.toLowerCase().replace(/["']/g, '').trim();
+        const existing = projects.find((p: any) => {
+          const pNorm = (p.topic || p.title || '').toLowerCase().replace(/["']/g, '').trim();
+          return pNorm === cleanNorm || pNorm.includes(cleanNorm) || cleanNorm.includes(pNorm);
+        });
+
+        let targetId = existing?.id;
+        if (!targetId) {
+          const created = await createProject(
+            clean,
+            `Investigation: ${clean}`,
+            `Automated research gap identification for topic: ${clean}`
+          );
+          targetId = created.id;
+          startResearchWorkflow(created.id).catch(() => {});
+        }
+        setActiveProjectId(targetId);
         setActiveTopic(clean);
-        lastLoadedRef.current = `${clean}::${created.id}`;
-        startResearchWorkflow(created.id).catch(() => {});
-        await loadInvestigationForTopic(clean, created.id);
+        lastLoadedRef.current = `${clean}::${targetId}`;
+        await loadInvestigationForTopic(clean, targetId);
       } catch (e) {
         console.warn('Could not sync project on backend:', e);
         await loadInvestigationForTopic(clean);

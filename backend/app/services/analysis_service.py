@@ -32,7 +32,9 @@ class AnalysisService:
     ):
         self.db = db
         self.settings = settings or get_settings()
-        self.llm = llm or get_llm_provider(self.settings, allow_mock=(self.settings.APP_ENV == "testing"))
+        has_llm_key = bool(self.settings.LLM_API_KEY or self.settings.GROQ_API_KEY or self.settings.GEMINI_API_KEY or self.settings.GOOGLE_API_KEY)
+        allow_mock = (self.settings.APP_ENV in ("testing", "development") and not has_llm_key) or (self.settings.APP_ENV == "testing")
+        self.llm = llm or get_llm_provider(self.settings, allow_mock=allow_mock)
         self.paper_repo = PaperRepository(db)
         self.research_repo = ResearchRepository(db)
         self.full_text_service = full_text_service or FullTextService(self.settings)

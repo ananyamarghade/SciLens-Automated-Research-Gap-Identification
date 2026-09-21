@@ -45,7 +45,9 @@ class ResearchService:
             research_repo.update_job(job_id, ResearchStatusEnum.PLANNING.value, 0.10, "planner")
             research_repo.update_project_status(research_id, ResearchStatusEnum.PLANNING.value, 0.10)
 
-            llm = get_llm_provider(self.settings, allow_mock=(self.settings.APP_ENV == "testing"))
+            has_llm_key = bool(self.settings.LLM_API_KEY or self.settings.GROQ_API_KEY or self.settings.GEMINI_API_KEY or self.settings.GOOGLE_API_KEY)
+            allow_mock = (self.settings.APP_ENV in ("testing", "development") and not has_llm_key) or (self.settings.APP_ENV == "testing")
+            llm = get_llm_provider(self.settings, allow_mock=allow_mock)
             search_service = PaperSearchService(self.settings)
             full_text_service = FullTextService(self.settings)
             embeddings = get_embeddings_engine(self.settings)

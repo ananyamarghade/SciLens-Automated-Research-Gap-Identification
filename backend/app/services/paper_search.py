@@ -1,12 +1,16 @@
 import asyncio
 from abc import ABC, abstractmethod
+import logging
 import re
+import time
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
 import httpx
 
 from backend.app.models.paper import PaperSearchResultItem
 from backend.app.utils.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class PaperSearchProvider(ABC):
@@ -95,6 +99,8 @@ class OpenAlexProvider(PaperSearchProvider):
                     citation_count=item.get("cited_by_count", 0),
                     venue=venue,
                     source_provider=self.provider_name,
+                    metadata_source="openalex",
+                    full_text_source="openalex_oa" if pdf_url else None,
                 )
             )
 
@@ -198,6 +204,8 @@ class PubMedProvider(PaperSearchProvider):
                             citation_count=0,
                             venue=source,
                             source_provider=self.provider_name,
+                            metadata_source="pubmed",
+                            full_text_source=None,
                         )
                     )
                 return results
@@ -266,6 +274,91 @@ class CrossRefProvider(PaperSearchProvider):
                     citation_count=citation_count,
                     venue=venue,
                     source_provider=self.provider_name,
+                    metadata_source="crossref",
+                    full_text_source=None,
+                )
+            )
+
+        return results
+
+
+class COREProvider(PaperSearchProvider):
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key
+        self.base_url = "https://api.core.ac.uk/v3/search/works/"
+
+    @property
+    def provider_name(self) -> str:
+        return "core"
+
+    async def search(self, query: str, limit: int = 10) -> List[PaperSearchResultItem]:
+        params = {
+            "q": query,
+            "limit": min(limit, 20),
+        }
+        headers = {
+            "User-Agent": "SciLensResearch/1.0 (mailto:admin@scilens.ai)",
+            "Accept": "application/json",
+        }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                res = await client.get(self.base_url, params=params, headers=headers)
+                if res.status_code != 200:
+                    logger.warning("CORE API returned %d for query '%s'", res.status_code, query[:40])
+                    return []
+                data = res.json()
+        except Exception as exc:
+            logger.warning("CORE API error for query '%s': %s", query[:40], exc)
+            return []
+
+        results: List[PaperSearchResultItem] = []
+        for item in data.get("results", []):
+            title = (item.get("title") or "").strip().rstrip(".")
+            if not title:
+                continue
+
+            authors = []
+            for a in item.get("authors", []):
+                name = a.get("name") if isinstance(a, dict) else str(a)
+                if name:
+                    authors.append(name.strip())
+
+            year = item.get("yearPublished")
+            doi = item.get("doi")
+            if doi and doi.startswith("https://doi.org/"):
+                doi = doi.replace("https://doi.org/", "")
+
+            download_url = item.get("downloadUrl")
+            source_url = None
+            for link in item.get("links", []):
+                if isinstance(link, dict) and link.get("type") == "display":
+                    source_url = link.get("url")
+                    break
+            if not source_url and item.get("id"):
+                source_url = f"https://core.ac.uk/works/{item.get('id')}"
+
+            pdf_url = download_url if (download_url and download_url.strip()) else None
+
+            journals = item.get("journals", [])
+            venue = journals[0].get("title") if journals and isinstance(journals[0], dict) else None
+
+            results.append(
+                PaperSearchResultItem(
+                    title=title,
+                    authors=authors,
+                    year=year,
+                    abstract=item.get("abstract"),
+                    doi=doi,
+                    source_url=source_url,
+                    pdf_url=pdf_url,
+                    citation_count=item.get("citationCount") or 0,
+                    venue=venue or "CORE Open Access",
+                    source_provider=self.provider_name,
+                    metadata_source="core",
+                    full_text_source="core" if pdf_url else None,
                 )
             )
 
@@ -273,76 +366,184 @@ class CrossRefProvider(PaperSearchProvider):
 
 
 class ArXivProvider(PaperSearchProvider):
-    def __init__(self):
+    _lock = asyncio.Lock()
+    _last_request_time = 0.0
+
+    def __init__(self, delay: float = 3.0):
         self.base_url = "https://export.arxiv.org/api/query"
+        self.delay = delay
 
     @property
     def provider_name(self) -> str:
         return "arxiv"
 
     async def search(self, query: str, limit: int = 10) -> List[PaperSearchResultItem]:
+        clean_q = query.strip()
+        arxiv_query = f"all:{clean_q}"
         params = {
-            "search_query": f"all:{query}",
+            "search_query": arxiv_query,
             "start": 0,
             "max_results": min(limit, 20),
         }
+        headers = {
+            "User-Agent": "SciLensResearch/1.0 (mailto:admin@scilens.ai)",
+            "Accept": "application/atom+xml,application/xml,text/xml,*/*",
+        }
 
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                res = await client.get(self.base_url, params=params)
-                if res.status_code != 200:
-                    return []
-                xml_data = res.text
-        except Exception:
-            return []
+        xml_data: Optional[str] = None
+        async with self._lock:
+            now = time.time()
+            elapsed = now - ArXivProvider._last_request_time
+            if elapsed < self.delay:
+                await asyncio.sleep(self.delay - elapsed)
+            ArXivProvider._last_request_time = time.time()
+
+            try:
+                async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+                    res = await client.get(self.base_url, params=params, headers=headers)
+                    if res.status_code == 200:
+                        xml_data = res.text
+                    elif res.status_code == 429:
+                        logger.warning("arXiv rate limit (429) on direct query '%s'. Utilizing arXiv fallback.", clean_q[:40])
+                    else:
+                        logger.warning("arXiv query returned %d for '%s'", res.status_code, clean_q[:40])
+            except Exception as exc:
+                logger.warning("arXiv direct request failed for '%s': %s", clean_q[:40], exc)
 
         results: List[PaperSearchResultItem] = []
-        try:
-            root = ET.fromstring(xml_data)
-            ns = {"atom": "http://www.w3.org/2005/Atom"}
-            for entry in root.findall("atom:entry", ns):
-                title_elem = entry.find("atom:title", ns)
-                title = title_elem.text.strip().replace("\n", " ") if title_elem is not None and title_elem.text else ""
-                if not title:
-                    continue
+        if xml_data:
+            try:
+                root = ET.fromstring(xml_data)
+                ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+                for entry in root.findall("atom:entry", ns):
+                    title_elem = entry.find("atom:title", ns)
+                    title = title_elem.text.strip().replace("\n", " ") if title_elem is not None and title_elem.text else ""
+                    if not title or title.lower() == "error":
+                        continue
 
-                summary_elem = entry.find("atom:summary", ns)
-                abstract = summary_elem.text.strip().replace("\n", " ") if summary_elem is not None and summary_elem.text else None
+                    summary_elem = entry.find("atom:summary", ns)
+                    abstract = summary_elem.text.strip().replace("\n", " ") if summary_elem is not None and summary_elem.text else None
 
-                published_elem = entry.find("atom:published", ns)
-                year = None
-                if published_elem is not None and published_elem.text:
-                    year = int(published_elem.text[:4])
+                    published_elem = entry.find("atom:published", ns)
+                    year = None
+                    if published_elem is not None and published_elem.text:
+                        year = int(published_elem.text[:4])
 
-                id_elem = entry.find("atom:id", ns)
-                source_url = id_elem.text.strip() if id_elem is not None and id_elem.text else None
+                    id_elem = entry.find("atom:id", ns)
+                    source_url = id_elem.text.strip() if id_elem is not None and id_elem.text else None
 
-                pdf_url = None
-                if source_url and "arxiv.org/abs/" in source_url:
-                    pdf_url = source_url.replace("arxiv.org/abs/", "arxiv.org/pdf/") + ".pdf"
+                    arxiv_id = None
+                    if source_url:
+                        m = re.search(r"(\d{4}\.\d{4,5}(?:v\d+)?)", source_url)
+                        if m:
+                            arxiv_id = m.group(1)
 
-                authors = []
-                for author_elem in entry.findall("atom:author", ns):
-                    name_elem = author_elem.find("atom:name", ns)
-                    if name_elem is not None and name_elem.text:
-                        authors.append(name_elem.text.strip())
+                    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf" if arxiv_id else None
+                    if not pdf_url and source_url and "arxiv.org/abs/" in source_url:
+                        pdf_url = source_url.replace("arxiv.org/abs/", "arxiv.org/pdf/") + ".pdf"
 
-                results.append(
-                    PaperSearchResultItem(
-                        title=title,
-                        authors=authors,
-                        year=year,
-                        abstract=abstract,
-                        doi=None,
-                        source_url=source_url,
-                        pdf_url=pdf_url,
-                        citation_count=0,
-                        venue="arXiv",
-                        source_provider=self.provider_name,
+                    doi_elem = entry.find("arxiv:doi", ns)
+                    doi = doi_elem.text.strip() if doi_elem is not None and doi_elem.text else None
+
+                    authors = []
+                    for author_elem in entry.findall("atom:author", ns):
+                        name_elem = author_elem.find("atom:name", ns)
+                        if name_elem is not None and name_elem.text:
+                            authors.append(name_elem.text.strip())
+
+                    results.append(
+                        PaperSearchResultItem(
+                            title=title,
+                            authors=authors,
+                            year=year,
+                            abstract=abstract,
+                            doi=doi,
+                            source_url=source_url,
+                            pdf_url=pdf_url,
+                            citation_count=0,
+                            venue="arXiv",
+                            source_provider=self.provider_name,
+                            metadata_source="arxiv",
+                            full_text_source="arxiv",
+                        )
                     )
-                )
-        except Exception:
-            return []
+            except Exception as parse_exc:
+                logger.warning("Failed to parse arXiv XML: %s", parse_exc)
+
+        # If direct arXiv was rate limited or returned 0 results, fall back to querying arXiv via OpenAlex repository
+        if not results:
+            try:
+                async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+                    fallback_res = await client.get(
+                        "https://api.openalex.org/works",
+                        params={
+                            "filter": "locations.source.id:s4306400194",
+                            "search": clean_q,
+                            "per_page": min(limit, 15),
+                        },
+                        headers={"User-Agent": "SciLensResearch/1.0 (mailto:admin@scilens.ai)"},
+                    )
+                    if fallback_res.status_code == 200:
+                        fdata = fallback_res.json()
+                        for item in fdata.get("results", []):
+                            title = item.get("display_name") or item.get("title") or ""
+                            if not title:
+                                continue
+                            authors = [
+                                auth.get("author", {}).get("display_name")
+                                for auth in item.get("authorships", [])
+                                if auth.get("author", {}).get("display_name")
+                            ]
+                            year = item.get("publication_year")
+                            doi = item.get("doi")
+                            if doi and doi.startswith("https://doi.org/"):
+                                doi = doi.replace("https://doi.org/", "")
+
+                            landing_url = None
+                            arxiv_id = None
+                            for loc in item.get("locations", []):
+                                lp = loc.get("landing_page_url") or ""
+                                if "arxiv.org" in lp:
+                                    landing_url = lp
+                                    m = re.search(r"(\d{4}\.\d{4,5}(?:v\d+)?)", lp)
+                                    if m:
+                                        arxiv_id = m.group(1)
+                                    break
+                            if not landing_url:
+                                landing_url = item.get("id")
+
+                            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf" if arxiv_id else (
+                                item.get("best_oa_location", {}).get("pdf_url")
+                            )
+
+                            abstract = None
+                            inverted_index = item.get("abstract_inverted_index")
+                            if inverted_index:
+                                word_positions = []
+                                for word, pos_list in inverted_index.items():
+                                    for pos in pos_list:
+                                        word_positions.append((pos, word))
+                                word_positions.sort()
+                                abstract = " ".join([w for _, w in word_positions])
+
+                            results.append(
+                                PaperSearchResultItem(
+                                    title=title,
+                                    authors=authors,
+                                    year=year,
+                                    abstract=abstract,
+                                    doi=doi,
+                                    source_url=landing_url,
+                                    pdf_url=pdf_url,
+                                    citation_count=item.get("cited_by_count", 0),
+                                    venue="arXiv",
+                                    source_provider="arxiv",
+                                    metadata_source="arxiv",
+                                    full_text_source="arxiv",
+                                )
+                            )
+            except Exception as fb_exc:
+                logger.warning("arXiv fallback failed: %s", fb_exc)
 
         return results
 
@@ -420,9 +621,10 @@ class PaperSearchService:
         self.settings = settings or get_settings()
         self.providers: Dict[str, PaperSearchProvider] = {
             "openalex": OpenAlexProvider(api_key=self.settings.OPENALEX_API_KEY),
-            "arxiv": ArXivProvider(),
-            "pubmed": PubMedProvider(),
+            "core": COREProvider(api_key=self.settings.CORE_API_KEY),
+            "arxiv": ArXivProvider(delay=self.settings.ARXIV_RATE_LIMIT_DELAY),
             "crossref": CrossRefProvider(),
+            "pubmed": PubMedProvider(),
         }
         if self.settings.TAVILY_API_KEY:
             self.providers["tavily"] = TavilySearchProvider(api_key=self.settings.TAVILY_API_KEY)
@@ -563,31 +765,78 @@ class PaperSearchService:
 
     def deduplicate_papers(self, papers: List[PaperSearchResultItem]) -> List[PaperSearchResultItem]:
         unique_papers: List[PaperSearchResultItem] = []
-        seen_dois = set()
-        seen_normalized_titles = set()
+        doi_to_index: Dict[str, int] = {}
+        title_author_to_index: Dict[str, int] = {}
+
+        def _get_first_author_norm(paper: PaperSearchResultItem) -> str:
+            if paper.authors:
+                first = paper.authors[0].lower()
+                clean = re.sub(r"[^\w]", "", first)
+                return clean[:15]
+            return ""
 
         for paper in papers:
+            matched_idx: Optional[int] = None
+
+            # 1. Match by normalized DOI first
+            norm_doi = None
             if paper.doi:
-                normalized_doi = paper.doi.lower().strip()
-                if normalized_doi in seen_dois:
-                    continue
-                seen_dois.add(normalized_doi)
+                norm_doi = paper.doi.lower().strip().replace("https://doi.org/", "").replace("http://doi.org/", "")
+                if norm_doi in doi_to_index:
+                    matched_idx = doi_to_index[norm_doi]
 
+            # 2. If no DOI match, match by normalized title + (first author or year)
             norm_title = self.normalize_title(paper.title)
-            if not norm_title or norm_title in seen_normalized_titles:
-                continue
+            author_key = _get_first_author_norm(paper)
+            year_key = str(paper.year) if paper.year else ""
+            title_key = f"{norm_title}::{author_key or year_key}"
 
-            duplicate_found = False
-            for existing in seen_normalized_titles:
-                if self.are_titles_similar(norm_title, existing):
-                    duplicate_found = True
-                    break
+            if matched_idx is None and norm_title:
+                if title_key in title_author_to_index:
+                    matched_idx = title_author_to_index[title_key]
+                else:
+                    for idx, existing_p in enumerate(unique_papers):
+                        existing_norm = self.normalize_title(existing_p.title)
+                        if self.are_titles_similar(norm_title, existing_norm, threshold=0.85):
+                            existing_auth = _get_first_author_norm(existing_p)
+                            existing_year = str(existing_p.year) if existing_p.year else ""
+                            if not author_key or not existing_auth or author_key == existing_auth or (year_key and existing_year and abs(int(year_key) - int(existing_year)) <= 1):
+                                matched_idx = idx
+                                break
 
-            if duplicate_found:
-                continue
+            if matched_idx is not None:
+                existing = unique_papers[matched_idx]
+                if not existing.doi and paper.doi:
+                    existing.doi = paper.doi
+                    if norm_doi:
+                        doi_to_index[norm_doi] = matched_idx
+                if not existing.abstract and paper.abstract:
+                    existing.abstract = paper.abstract
+                elif paper.abstract and len(paper.abstract) > len(existing.abstract or ""):
+                    existing.abstract = paper.abstract
+                if not existing.pdf_url and paper.pdf_url:
+                    existing.pdf_url = paper.pdf_url
+                    existing.full_text_source = paper.full_text_source or paper.source_provider
+                if not existing.year and paper.year:
+                    existing.year = paper.year
+                if not existing.authors and paper.authors:
+                    existing.authors = paper.authors
+                if not existing.venue and paper.venue:
+                    existing.venue = paper.venue
+                if (paper.citation_count or 0) > (existing.citation_count or 0):
+                    existing.citation_count = paper.citation_count
 
-            seen_normalized_titles.add(norm_title)
-            unique_papers.append(paper)
+                if paper.full_text_source in ("core", "arxiv") and existing.full_text_source not in ("core", "arxiv"):
+                    existing.full_text_source = paper.full_text_source
+                    if paper.pdf_url:
+                        existing.pdf_url = paper.pdf_url
+            else:
+                new_idx = len(unique_papers)
+                unique_papers.append(paper)
+                if norm_doi:
+                    doi_to_index[norm_doi] = new_idx
+                if norm_title:
+                    title_author_to_index[title_key] = new_idx
 
         return unique_papers
 

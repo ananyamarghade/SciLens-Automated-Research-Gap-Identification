@@ -59,7 +59,7 @@ export const BackendProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const projects = await listProjects();
         if (projects && projects.length > 0) {
-          if (!activeProjectId || activeProjectId.startsWith('proj_')) {
+          if (!activeProjectId || activeProjectId === 'canonical_ai_education_writing' || activeProjectId.startsWith('proj_')) {
             const selected = projects[0];
             setActiveProjectId(selected.id);
             setActiveTopic(selected.topic);
@@ -108,7 +108,9 @@ export const BackendProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.warn('Failed to start live workflow, continuing in fallback mode:', err);
     }
     setIsStartingWorkflow(false);
-    return activeProject.id;
+    const fallbackId = `proj_${Date.now()}`;
+    setActiveProjectId(fallbackId);
+    return fallbackId;
   };
 
   return (

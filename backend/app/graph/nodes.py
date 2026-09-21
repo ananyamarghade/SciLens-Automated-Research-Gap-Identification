@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from backend.app.graph.state import ResearchState
 from backend.app.agents.planner import PlannerAgent
 from backend.app.agents.literature_agent import LiteratureAgent
@@ -13,6 +13,7 @@ from backend.app.models.gap import ResearchGap
 from backend.app.services.analysis_service import AnalysisService, AnalysisUnavailableError
 from backend.app.services.full_text_service import FullTextService
 from backend.app.database.repositories import PaperRepository
+from backend.app.rag.loaders import PDFLoader
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class ResearchGraphNodes:
         self.gap_investigator = gap_investigator_agent
         self.research_dev = research_dev_agent
         self.draft_agent = draft_agent
-        # db may be None in testing; AnalysisService is created lazily in analysis_node
+        self.llm = getattr(planner_agent, "llm", None)
         self._db = db
         self._full_text_service = FullTextService() if db is not None else None
 
@@ -72,6 +73,8 @@ class ResearchGraphNodes:
                     pdf_url=item.pdf_url,
                     venue=item.venue,
                     source_provider=item.source_provider,
+                    metadata_source=item.metadata_source or item.source_provider,
+                    full_text_source=item.full_text_source,
                 )
         return {
             "discovered_papers": discovered_dicts,
@@ -98,7 +101,7 @@ class ResearchGraphNodes:
             return {"next_action": "synthesize_landscape", "analysis_summary": {}}
 
         paper_repo = PaperRepository(self._db)
-        analysis_svc = AnalysisService(db=self._db, full_text_service=self._full_text_service)
+        analysis_svc = AnalysisService(db=self._db, llm=self.llm, full_text_service=self._full_text_service)
         papers = paper_repo.list_papers(research_id)
 
         completed = 0
@@ -120,27 +123,44 @@ class ResearchGraphNodes:
                 "source_url": paper.source_url,
                 "source_provider": paper.source_provider,
                 "doi": paper.doi,
+                "metadata_source": paper.metadata_source,
+                "full_text_source": paper.full_text_source,
             }
             try:
-                if self._full_text_service and (paper.pdf_url or paper.source_url):
+                if self._full_text_service and (paper.pdf_url or paper.source_url or paper.doi):
                     result = await self._full_text_service.acquire_paper_pdf(paper_data)
                     if result and result.get("content"):
-                        # Decode bytes to text (best-effort)
                         raw = result["content"]
+                        fts = result.get("full_text_source") or paper.full_text_source or "full_text"
                         try:
-                            context_text = raw.decode("utf-8", errors="ignore")
+                            loader = PDFLoader()
+                            pages = loader.load_from_bytes(raw)
+                            page_texts = [p.text.strip() for p in pages if p.text and p.text.strip()]
+                            if page_texts:
+                                context_text = "\n\n".join(page_texts)
+                            else:
+                                context_text = raw.decode("utf-8", errors="ignore")
                         except Exception:
-                            context_text = str(raw)
-                        logger.info("Paper '%s': full text acquired (%d bytes).", paper.title[:50], len(raw))
+                            try:
+                                context_text = raw.decode("utf-8", errors="ignore")
+                            except Exception:
+                                context_text = str(raw)
+
+                        paper_repo.update_paper_full_text_source(paper.id, fts)
+                        logger.info("Paper '%s': full text acquired via %s (%d bytes).", paper.title[:50], fts, len(raw))
             except Exception as exc:
                 logger.warning("Paper '%s': PDF acquisition failed, falling back to abstract if available: %s", paper.title[:50], exc)
 
             has_substantive_abstract = bool(paper.abstract and len(paper.abstract.strip()) >= 150)
-            if not context_text and not has_substantive_abstract:
-                # No retrievable source and no substantive abstract
-                paper_repo.update_analysis_status(paper.id, "UNAVAILABLE", "SOURCE_NOT_FOUND")
-                unavailable += 1
-                continue
+            if not context_text:
+                if has_substantive_abstract:
+                    context_text = f"Title: {paper.title}\n\nAbstract: {paper.abstract}"
+                    paper_repo.update_paper_full_text_source(paper.id, "abstract_only")
+                else:
+                    paper_repo.update_analysis_status(paper.id, "UNAVAILABLE", "SOURCE_NOT_FOUND")
+                    paper_repo.update_paper_full_text_source(paper.id, "unavailable")
+                    unavailable += 1
+                    continue
 
             # ── Step 2: Run structured analysis ─────────────────────────────
             try:

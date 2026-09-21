@@ -282,6 +282,8 @@ async def search_papers(
             pdf_url=item.pdf_url,
             venue=item.venue,
             source_provider=item.source_provider,
+            metadata_source=item.metadata_source or item.source_provider,
+            full_text_source=item.full_text_source,
         )
     return results
 
@@ -311,6 +313,8 @@ async def discover_papers(
             pdf_url=item.pdf_url,
             venue=item.venue,
             source_provider=item.source_provider,
+            metadata_source=item.metadata_source or item.source_provider,
+            full_text_source=item.full_text_source,
         )
     return results
 

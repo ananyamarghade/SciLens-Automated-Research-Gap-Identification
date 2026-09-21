@@ -5,8 +5,7 @@ import { demoAgentActivities } from '../data/demoAgents';
 import { demoDevelopment } from '../data/development';
 import { demoDraft } from '../data/draft';
 import { demoCitationsByStyle, demoClaimVerifications } from '../data/citations';
-import { activeProject } from '../data/demoResearch';
-import { Paper, ResearchGap, AgentActivityItem, CitationStyle, ResearchLandscape } from '../types';
+import { Paper, ResearchGap, GapStatus, AgentActivityItem, CitationStyle, ResearchLandscape } from '../types';
 import { fetchOnlineOpenAlexPapers } from './openalex';
 
 export const BACKEND_URL = (import.meta as any).env?.VITE_API_URL || 'http://127.0.0.1:8000';
@@ -94,10 +93,10 @@ export async function createProject(
     console.warn('Backend createProject failed, using fallback project:', err);
   }
   return {
-    id: activeProject.id,
-    title: title || activeProject.title,
+    id: `proj_${Date.now()}`,
+    title: title || `Investigation: ${topic}`,
     topic,
-    description: 'Automated Research Gap Identification Project',
+    description: description || 'Automated Research Gap Identification Project',
     status: 'planning',
     progress: 0.05,
     created_at: new Date().toISOString(),
@@ -464,45 +463,65 @@ export async function getGaps(researchId: string): Promise<ResearchGap[]> {
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
-        return data.map((g: any) => ({
-          id: g.id,
-          gapType: g.gap_type || 'Methodological',
-          title: g.title,
-          description: g.description,
-          supportingPaperIds: (g.evidence || g.evidence_items || []).map((e: any) => e.paper_id).filter(Boolean),
-          supportingPapers: [],
-          evidenceSnippets: (g.evidence || g.evidence_items || []).map((e: any) => ({
-            id: e.id,
-            paperId: e.paper_id,
-            paperTitle: e.paper_title || 'Corpus Reference',
-            authors: ['Research Investigator'],
-            year: 2024,
-            pageNumber: e.page_number || 1,
-            section: e.section || 'Results',
-            snippet: e.snippet,
-            confidence: e.confidence || 0.9,
-            isSupporting: e.is_supporting,
-            doi: e.doi,
-            evidenceType: e.evidence_type || 'PARAPHRASE',
-            exactSourceText: e.exact_source_text,
-            extractionMethod: e.extraction_method || 'automated_analysis',
-            relevanceTier: e.relevance_tier || 'RELATED',
-          })),
-          evidenceStrength: g.evidence_strength || 'High',
-          confidence: typeof g.confidence === 'number' ? (g.confidence > 1 ? g.confidence / 100 : g.confidence) : 0.85,
-          status: (g.status === 'VALID' || g.status === 'validated' || g.status === 'VALIDATED') ? 'Validated' :
-                  (g.status === 'SUPPORTED' || g.status === 'Supported Gap') ? 'Supported Gap' :
-                  (g.status === 'CANDIDATE' || g.status === 'Candidate Gap') ? 'Candidate Gap' :
-                  (g.status === 'INSUFFICIENT' || g.status === 'insufficient') ? 'Insufficient Evidence' : 'Potential',
-          affectedThemes: g.affected_themes || [],
-          noveltyAssessment: g.novelty_status || 'well_supported',
-          criticNotes: g.critic_notes,
-          iterationCount: g.iteration_count || 1,
-          derivedFrom: g.derived_from || [],
-          crossPaperPattern: g.cross_paper_pattern || '',
-          missingEvidence: g.missing_evidence || '',
-          confidenceRationale: g.confidence_rationale || '',
-        }));
+        return data.map((g: any) => {
+          const evidenceList = g.evidence || g.evidence_items || [];
+          const supportingPaperIds: string[] = Array.from(
+            new Set(evidenceList.map((e: any) => e.paper_id).filter(Boolean))
+          );
+          const supportingPaperTitles: string[] = Array.from(
+            new Set(evidenceList.map((e: any) => e.paper_title).filter(Boolean))
+          );
+
+          let status: GapStatus =
+            (g.status === 'VALID' || g.status === 'validated' || g.status === 'VALIDATED') ? 'Validated' :
+            (g.status === 'SUPPORTED' || g.status === 'Supported Gap') ? 'Supported Gap' :
+            (g.status === 'CANDIDATE' || g.status === 'Candidate Gap') ? 'Candidate Gap' :
+            (g.status === 'INSUFFICIENT' || g.status === 'insufficient') ? 'Insufficient Evidence' : 'Potential';
+
+          // HARD RULE: A gap can NEVER have 0 supporting papers and status Validated/Verified
+          if (supportingPaperIds.length === 0 && (status === 'Validated' || status === 'Supported Gap' || (status as string) === 'Validated Gap')) {
+            status = 'Insufficient Evidence';
+          }
+
+          return {
+            id: g.id,
+            investigationId: g.research_id || researchId,
+            source: 'backend' as const,
+            gapType: g.gap_type || 'Methodological',
+            title: g.title,
+            description: g.description,
+            supportingPaperIds,
+            supportingPapers: supportingPaperTitles.length > 0 ? supportingPaperTitles : supportingPaperIds,
+            evidenceSnippets: evidenceList.map((e: any) => ({
+              id: e.id,
+              paperId: e.paper_id,
+              paperTitle: e.paper_title || 'Corpus Reference',
+              authors: ['Research Investigator'],
+              year: 2024,
+              pageNumber: e.page_number || 1,
+              section: e.section || 'Results',
+              snippet: e.snippet,
+              confidence: e.confidence || 0.9,
+              isSupporting: e.is_supporting !== false,
+              doi: e.doi,
+              evidenceType: e.evidence_type || 'PARAPHRASE',
+              exactSourceText: e.exact_source_text,
+              extractionMethod: e.extraction_method || 'automated_analysis',
+              relevanceTier: e.relevance_tier || 'RELATED',
+            })),
+            evidenceStrength: g.evidence_strength || 'High',
+            confidence: typeof g.confidence === 'number' ? (g.confidence > 1 ? g.confidence / 100 : g.confidence) : 0.85,
+            status,
+            affectedThemes: g.affected_themes || [],
+            noveltyAssessment: g.novelty_status || 'well_supported',
+            criticNotes: g.critic_notes,
+            iterationCount: g.iteration_count || 1,
+            derivedFrom: g.derived_from || [],
+            crossPaperPattern: g.cross_paper_pattern || '',
+            missingEvidence: g.missing_evidence || '',
+            confidenceRationale: g.confidence_rationale || '',
+          };
+        });
       }
     }
   } catch (err) {

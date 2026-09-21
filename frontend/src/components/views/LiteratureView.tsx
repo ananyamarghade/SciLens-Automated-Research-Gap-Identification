@@ -765,13 +765,12 @@ export const LiteratureView: React.FC<LiteratureViewProps> = ({
 
               <button
                 onClick={() => {
-                  setSelectedPaperId(activeDetailPaper.id);
                   setActiveDetailPaper(null);
-                  onNavigate('paper_analysis');
+                  onNavigate('gaps');
                 }}
                 className="px-4 py-2 rounded-lg border border-scilens-teal text-scilens-teal dark:text-scilens-glowteal font-sans font-medium text-xs hover:bg-scilens-teal hover:text-white transition-colors"
               >
-                Deep Paper Analysis →
+                Inspect Associated Gaps →
               </button>
             </div>
           </div>
