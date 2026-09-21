@@ -1,7 +1,7 @@
 # SciLens — Automated Research Gap Identification
 
 [![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification)
-[![Vercel Deployment](https://img.shields.io/badge/Vercel-Live_Demo-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://scilens-automated-research-gap-identification.vercel.app)
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-Live_Demo-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://sci-lens-automated-research-gap-ide-nu.vercel.app/)
 
 - **🌐 Live Demo (Vercel):** (https://sci-lens-automated-research-gap-ide-nu.vercel.app/)
 - **💻 GitHub Repository:** (https://github.com/ananyamarghade/SciLens-Automated-Research-Gap-Identification)
